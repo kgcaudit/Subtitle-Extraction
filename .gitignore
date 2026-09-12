@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.venv/
+venv/
+
+# 작업 중 생긴 자막/영상 산출물
+*.srt
+*.sup
+*.idx
+*.sub

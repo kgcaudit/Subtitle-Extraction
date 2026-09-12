@@ -1,0 +1,4 @@
+# 런타임 의존성은 Pillow 하나뿐이다.
+# 외부 프로그램으로 ffmpeg/ffprobe 가 필요하고,
+# 이미지 자막을 글자로 바꿀 때만 tesseract 가 추가로 필요하다.
+pillow>=9.0
