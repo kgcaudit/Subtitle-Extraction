@@ -24,6 +24,34 @@
     </label>
     <p class="status" id="status" role="status" aria-live="polite"></p>
     <div class="bar" id="bar" hidden><div class="bar-fill" id="barFill"></div></div>
+
+    <details class="settings">
+      <summary>그림 자막 인식 설정</summary>
+      <div class="settings-body">
+        <label>
+          <span>인식 언어</span>
+          <select id="ocrLang">
+            <option value="auto" selected>자동 — 앞부분을 견줘 보고 고름 (기본)</option>
+            <option value="kor+eng">한국어 + 영어</option>
+            <option value="kor">한국어만 — 한글만 있는 자막에 더 정확</option>
+            <option value="eng">영어만</option>
+          </select>
+        </label>
+        <label>
+          <span>확대 배율</span>
+          <select id="ocrScale">
+            <option value="2" selected>2배 — 빠름 (기본)</option>
+            <option value="3">3배 — 보통</option>
+            <option value="4">4배 — 글자가 작을 때</option>
+          </select>
+        </label>
+        <p class="settings-note">
+          한글만 있는 자막은 '한국어만'이 눈에 띄게 정확하고(실측 98.0% 대 89.7%),
+          영문이 섞여 있으면 반대로 '한국어만'이 영문을 깨뜨립니다. '자동'은 앞부분
+          몇 장을 양쪽으로 읽어 보고 더 잘 읽히는 쪽을 고릅니다.
+        </p>
+      </div>
+    </details>
   </section>
 
   <section id="trackSection" hidden>

@@ -118,6 +118,88 @@ test('MP4: 글자 자막 두 트랙이 파이썬판과 같은 SRT 가 된다', {
   });
 });
 
+/** 글자 하나 단위로 얼마나 맞는지. */
+function characterAccuracy(expected, actual) {
+  const distance = levenshtein(expected, actual);
+  return expected.length ? (1 - distance / expected.length) * 100 : 100;
+}
+
+function levenshtein(a, b) {
+  const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    let diagonal = previous[0];
+    previous[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const temp = previous[j];
+      previous[j] = Math.min(previous[j] + 1, previous[j - 1] + 1, diagonal + (a[i - 1] === b[j - 1] ? 0 : 1));
+      diagonal = temp;
+    }
+  }
+  return previous[b.length];
+}
+
+test('실제 자막에 가까운 .sup 도 끝까지 처리된다', { timeout: 300000 }, async (t) => {
+  if (!(await loadPlaywright()) || !vendorReady) return t.skip(skipReason);
+  if (!existsSync(fixture('rich.sup'))) return t.skip('한글 글꼴이 없어 만들지 못한 자료입니다');
+
+  await withPage(async (page, pageErrors) => {
+    // 파이썬 정답지가 '한국어+영어' 로 만들어졌으므로 같은 설정으로 맞춘다.
+    await page.click('.settings > summary');
+    await page.selectOption('#ocrLang', 'kor+eng');
+
+    const produced = await extractInBrowser(page, 'rich.sup', 1);
+    assert.deepEqual(pageErrors, [], '브라우저에서 오류가 났습니다');
+    assert.equal(produced.length, 1);
+
+    const expected = readFileSync(fixture('expected.rich.srt'), 'utf8');
+    const actual = produced[0].text;
+
+    // 시각은 정확히 같아야 한다 — 여기가 틀리면 자막을 꺼내는 쪽 문제다.
+    const times = (text) => [...text.matchAll(/(\d\d:\d\d:\d\d,\d\d\d) --> (\d\d:\d\d:\d\d,\d\d\d)/g)].map((m) => m[0]);
+    assert.deepEqual(times(actual), times(expected), '시각이 파이썬판과 다릅니다');
+
+    // 글자는 인식 엔진이 달라(WebAssembly 대 네이티브) 아주 조금 갈릴 수 있다.
+    const accuracy = characterAccuracy(expected, actual);
+    assert.ok(accuracy >= 95, `글자 일치율이 ${accuracy.toFixed(1)}% 입니다 (95% 이상이어야 함)`);
+  });
+});
+
+test('인식 언어를 바꿔도 끝까지 처리된다', { timeout: 300000 }, async (t) => {
+  if (!(await loadPlaywright()) || !vendorReady) return t.skip(skipReason);
+  if (!existsSync(fixture('rich.sup'))) return t.skip('한글 글꼴이 없어 만들지 못한 자료입니다');
+
+  await withPage(async (page, pageErrors) => {
+    await page.click('.settings > summary'); // 설정은 접혀 있다. 사용자처럼 펼친다.
+    await page.selectOption('#ocrLang', 'kor');
+    await page.selectOption('#ocrScale', '3');
+    const produced = await extractInBrowser(page, 'rich.sup', 1);
+    assert.deepEqual(pageErrors, [], '브라우저에서 오류가 났습니다');
+    assert.ok(produced[0].text.includes('-->'), 'SRT 가 만들어지지 않았습니다');
+  });
+});
+
+test('자동 선택이 한글 전용 자막에서는 한국어만 고른다', { timeout: 300000 }, async (t) => {
+  if (!(await loadPlaywright()) || !vendorReady) return t.skip(skipReason);
+  if (!existsSync(fixture('rich.sup'))) return t.skip('한글 글꼴이 없어 만들지 못한 자료입니다');
+
+  await withPage(async (page) => {
+    // 기본값이 '자동' 이므로 아무것도 건드리지 않는다.
+    await extractInBrowser(page, 'rich.sup', 1);
+    const status = await page.textContent('#status');
+    assert.match(status, /한국어만/, `고른 언어가 예상과 다릅니다: ${status}`);
+  });
+});
+
+test('자동 선택이 한·영 혼합 자막에서는 한국어+영어를 고른다', { timeout: 300000 }, async (t) => {
+  if (!(await loadPlaywright()) || !vendorReady) return t.skip(skipReason);
+
+  await withPage(async (page) => {
+    await extractInBrowser(page, 'sample.sup', 1);
+    const status = await page.textContent('#status');
+    assert.match(status, /한국어\+영어/, `고른 언어가 예상과 다릅니다: ${status}`);
+  });
+});
+
 test('자막이 없는 영상은 그렇다고 알려 준다', { timeout: 120000 }, async (t) => {
   if (!(await loadPlaywright())) return t.skip(skipReason);
 

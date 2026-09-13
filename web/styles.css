@@ -160,3 +160,37 @@ button:disabled { opacity: 0.5; cursor: default; }
 @media (min-width: 560px) {
   .primary { width: auto; min-width: 220px; }
 }
+
+/* --- 고급 설정 --- */
+.settings {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+}
+.settings > summary {
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.settings-body {
+  display: grid;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+.settings-body label {
+  display: grid;
+  gap: 4px;
+  font-size: 0.9rem;
+}
+.settings-body select {
+  font: inherit;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--ground);
+  color: var(--ink);
+  max-width: 100%;
+}
+.settings-note { margin: 0; color: var(--muted); font-size: 0.8rem; }

@@ -16,21 +16,21 @@
   {
    "startMs": 1000,
    "endMs": 3500,
-   "width": 229,
+   "width": 231,
    "height": 94,
    "rgba": "pgs_sup.0.rgba"
   },
   {
    "startMs": 4000,
    "endMs": 6500,
-   "width": 426,
+   "width": 427,
    "height": 44,
    "rgba": "pgs_sup.1.rgba"
   },
   {
    "startMs": 7000,
    "endMs": 9500,
-   "width": 585,
+   "width": 586,
    "height": 47,
    "rgba": "pgs_sup.2.rgba"
   }
@@ -39,21 +39,21 @@
   {
    "startMs": 0,
    "endMs": 2500,
-   "width": 229,
+   "width": 231,
    "height": 94,
    "rgba": "pgs_mkv.0.rgba"
   },
   {
    "startMs": 3000,
    "endMs": 5500,
-   "width": 426,
+   "width": 427,
    "height": 44,
    "rgba": "pgs_mkv.1.rgba"
   },
   {
    "startMs": 6000,
    "endMs": 8500,
-   "width": 585,
+   "width": 586,
    "height": 47,
    "rgba": "pgs_mkv.2.rgba"
   }
@@ -102,6 +102,34 @@
    "width": 373,
    "height": 32,
    "rgba": "vobsub_mkv.2.rgba"
+  }
+ ],
+ "richTexts": [
+  "이건 안티에일리어싱이 들어간 자막입니다",
+  "노란 자막도 확인합니다",
+  "두 줄을 따로 얹은 경우\n아래쪽 줄입니다"
+ ],
+ "pgsRich": [
+  {
+   "startMs": 1000,
+   "endMs": 3500,
+   "width": 781,
+   "height": 44,
+   "rgba": "pgs_rich.0.rgba"
+  },
+  {
+   "startMs": 4000,
+   "endMs": 6500,
+   "width": 441,
+   "height": 44,
+   "rgba": "pgs_rich.1.rgba"
+  },
+  {
+   "startMs": 7000,
+   "endMs": 9500,
+   "width": 405,
+   "height": 128,
+   "rgba": "pgs_rich.2.rgba"
   }
  ]
 }

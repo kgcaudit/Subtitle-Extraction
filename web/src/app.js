@@ -12,7 +12,7 @@ import {
 } from './extract.js';
 import { decodeSupFile } from './pgs.js';
 import { prepareForOcr } from './bitmapPrep.js';
-import { OcrPool } from './ocr.js';
+import { OcrPool, pickLanguage } from './ocr.js';
 import { tidy } from './postprocess.js';
 import { render } from './srt.js';
 
@@ -27,7 +27,17 @@ const ui = {
   extract: document.getElementById('extract'),
   resultSection: document.getElementById('resultSection'),
   results: document.getElementById('results'),
+  ocrLang: document.getElementById('ocrLang'),
+  ocrScale: document.getElementById('ocrScale'),
 };
+
+/** 그림 자막 인식 설정. 측정해 보면 자료에 따라 최선이 달라 고를 수 있게 했다. */
+function ocrSettings() {
+  return {
+    language: ui.ocrLang?.value || 'auto',
+    scale: Number(ui.ocrScale?.value) || 2,
+  };
+}
 
 const state = {
   file: null,
@@ -37,6 +47,7 @@ const state = {
   selected: new Set(),
   busy: false,
   objectUrls: [],
+  languageNotice: null,
 };
 
 let assetsPromise = null;
@@ -61,6 +72,8 @@ function setBusy(busy) {
   state.busy = busy;
   ui.extract.disabled = busy || state.selected.size === 0;
   ui.file.disabled = busy;
+  if (ui.ocrLang) ui.ocrLang.disabled = busy;
+  if (ui.ocrScale) ui.ocrScale.disabled = busy;
 }
 
 function renderTracks() {
@@ -184,9 +197,11 @@ async function extractSelected() {
   if (!state.file || state.busy) return;
   clearResults();
   setBusy(true);
+  state.languageNotice = null;
 
   const chosen = state.tracks.filter((t) => state.selected.has(t.subtitleIndex) && isSupported(t));
   const usedNames = new Set();
+  const settings = ocrSettings();
   let pool = null;
 
   try {
@@ -204,8 +219,9 @@ async function extractSelected() {
 
       let textCues = cues;
       if (cues.some((cue) => cue.image)) {
-        pool ??= await startOcr();
-        textCues = await recognizeCues(cues, pool, label);
+        const prepared = prepareImages(cues, settings.scale);
+        pool ??= await startOcr(settings.language, prepared.images);
+        textCues = await recognizeCues(cues, prepared, pool, label);
       }
 
       const tidied = tidy(
@@ -220,7 +236,8 @@ async function extractSelected() {
         addResult(fileName, tidied);
       }
       const seconds = ((performance.now() - startedAt) / 1000).toFixed(1);
-      say(`${label} 완료 (${tidied.length}줄, ${seconds}초) — ${position + 1}/${chosen.length}`);
+      const note = state.languageNotice ? ` · ${state.languageNotice}` : '';
+      say(`${label} 완료 (${tidied.length}줄, ${seconds}초) — ${position + 1}/${chosen.length}${note}`);
     }
 
     if (!ui.results.childElementCount) say('추출된 자막이 없습니다.', true);
@@ -238,34 +255,53 @@ async function readStandaloneSup(file) {
   return decodeSupFile(bytes);
 }
 
-async function startOcr() {
+const LANGUAGE_LABELS = { kor: '한국어만', 'kor+eng': '한국어+영어', eng: '영어만' };
+
+async function startOcr(language, images) {
   say('문자 인식 엔진을 준비하는 중…');
   assetsPromise ??= resolveAssets();
   const assets = await assetsPromise;
   if (!globalThis.Tesseract) await loadScript(assets.script);
-  return OcrPool.create(assets);
+
+  let chosen = language;
+  if (language === 'auto') {
+    say('어느 언어로 읽을지 앞부분을 살펴보는 중…');
+    const decision = await pickLanguage(assets, images);
+    chosen = decision.language;
+    const detail = decision.latinWords
+      ? `영문 낱말 ${decision.latinWords}개, 확신도 ${decision.latinConfidence.toFixed(0)}`
+      : '영문이 보이지 않음';
+    const notice = `인식 언어를 '${LANGUAGE_LABELS[chosen] ?? chosen}' 로 정했습니다 (${detail})`;
+    state.languageNotice = notice;
+    say(notice);
+  }
+  return OcrPool.create(assets, { language: chosen });
 }
 
-async function recognizeCues(cues, pool, label) {
-  const prepared = [];
+/** 그림 자막을 인식기에 넣을 수 있게 다듬는다. 어느 자막의 것인지도 함께 기억한다. */
+function prepareImages(cues, scale) {
+  const images = [];
   const index = [];
   cues.forEach((cue, position) => {
     if (!cue.image) return;
-    const image = prepareForOcr(cue.image);
+    const image = prepareForOcr(cue.image, { scale });
     if (!image) return;
-    prepared.push(image);
+    images.push(image);
     index.push(position);
   });
+  return { images, index };
+}
 
-  say(`${label} — 글자를 읽는 중 0/${prepared.length}`);
-  const texts = await pool.recognizeAll(prepared, (done, total) => {
+async function recognizeCues(cues, prepared, pool, label) {
+  say(`${label} — 글자를 읽는 중 0/${prepared.images.length}`);
+  const texts = await pool.recognizeAll(prepared.images, (done, total) => {
     showProgress(done / total);
     say(`${label} — 글자를 읽는 중 ${done}/${total}`);
   });
   showProgress(null);
 
   const result = cues.map((cue) => ({ ...cue }));
-  index.forEach((position, order) => {
+  prepared.index.forEach((position, order) => {
     result[position].text = texts[order];
   });
   return result;

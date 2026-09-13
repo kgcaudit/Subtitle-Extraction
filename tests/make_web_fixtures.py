@@ -20,10 +20,15 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tests"))
 
 from pgs_writer import quantize, render_text, write_sup          # noqa: E402
+from pgs_writer import quantize_together                         # noqa: E402
 from vobsub_writer import write_vobsub                           # noqa: E402
 
-from subex.pgs import parse_sup                                   # noqa: E402
-from subex.vobsub import parse_vobsub                             # noqa: E402
+from subex.bitmap import prepare_for_ocr                          # noqa: E402
+from subex.ocr import TesseractEngine, recognize_many              # noqa: E402
+from subex.pgs import parse_sup                                    # noqa: E402
+from subex.postprocess import tidy                                 # noqa: E402
+from subex.srt import Cue, render_srt                              # noqa: E402
+from subex.vobsub import parse_vobsub                              # noqa: E402
 
 FIXTURES = ROOT / "web/test/fixtures"
 KOREAN_FONTS = [
@@ -62,6 +67,15 @@ def dump_cues(name: str, cues) -> list[dict]:
             }
         )
     return records
+
+
+def ocr_sup(path) -> list:
+    """.sup 파일을 파이썬판으로 끝까지 처리한다(그림 해독 → 문자 인식 → 다듬기)."""
+    cues = parse_sup(path)
+    images = [prepare_for_ocr(cue.image) for cue in cues]
+    texts = recognize_many(images, TesseractEngine(language="kor+eng"))
+    return tidy([Cue(cue.start, cue.end, text) for cue, text in zip(cues, texts)],
+                strip_styling=False)
 
 
 def main() -> None:
@@ -119,6 +133,34 @@ def main() -> None:
         check=True,
     )
 
+    # --- 실제 블루레이 자막에 가까운 PGS ---
+    # 글자 가장자리가 번진(안티에일리어싱) 여러 색, 노란 자막, 그리고 두 줄을
+    # 각각 다른 객체로 얹는 경우까지 넣는다. 단순한 3색 자료로는 못 밟아 보는
+    # 경로들이다.
+    rich_entries = []
+    rich_texts = [
+        "이건 안티에일리어싱이 들어간 자막입니다",
+        "노란 자막도 확인합니다",
+        "두 줄을 따로 얹은 경우\n아래쪽 줄입니다",
+    ]
+    if font:
+        for index, text in enumerate(rich_texts):
+            start = 1000 + index * 3000
+            if index == 2:
+                top = render_text(text.split("\n")[0], 42, font)
+                bottom = render_text(text.split("\n")[1], 42, font)
+                rich_entries.append(
+                    (start, start + 2500, [(top, (200, 890)), (bottom, (240, 975))], None)
+                )
+            else:
+                color = (255, 235, 90) if index == 1 else (255, 255, 255)
+                rich_entries.append(
+                    (start, start + 2500, render_text(text, 44, font, fill=color), (160, 900))
+                )
+
+        rich = FIXTURES / "rich.sup"
+        write_sup(rich, rich_entries, canvas=(1920, 1080))
+
     # --- MP4 (글자 자막 두 개) ---
     mp4 = FIXTURES / "sample.mp4"
     subprocess.run(
@@ -158,10 +200,17 @@ def main() -> None:
             check=True,
             cwd=ROOT,
         )
-        for produced in sorted(FIXTURES.glob("sample.*.srt")):
+        for produced in sorted(list(FIXTURES.glob("sample.*.srt")) + list(FIXTURES.glob("rich.*.srt"))):
             target = FIXTURES / f"{prefix}.{produced.name.split('.', 1)[1]}"
             produced.replace(target)
             expected_srt[target.name] = target.read_text(encoding="utf-8")
+
+    if font:
+        # .sup 을 명령줄로 돌리면 ffmpeg 이 시각을 0 부터로 옮겨 버린다. 웹은
+        # 파일을 그대로 읽으므로, 정답지도 라이브러리로 바로 만들어 맞춘다.
+        (FIXTURES / "expected.rich.srt").write_text(
+            render_srt(ocr_sup(FIXTURES / "rich.sup")), encoding="utf-8", newline="\n"
+        )
 
     golden = {
         "texts": texts,
@@ -171,6 +220,8 @@ def main() -> None:
         "pgsFromMkv": dump_cues("pgs_mkv", parse_sup(muxed_sup)),
         "vobsubFromIdx": dump_cues("vobsub_idx", parse_vobsub(idx)),
         "vobsubFromMkv": dump_cues("vobsub_mkv", parse_vobsub(mkv, sub_index=2)),
+        "richTexts": rich_texts if font else [],
+        "pgsRich": dump_cues("pgs_rich", parse_sup(FIXTURES / "rich.sup")) if font else [],
     }
     muxed_sup.unlink()
 

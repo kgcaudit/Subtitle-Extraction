@@ -91,6 +91,21 @@ test('VobSub: 영상(MKV) 안의 자막 해독이 파이썬판과 같다', async
   });
 });
 
+test('PGS: 안티에일리어싱·여러 객체 자막도 파이썬판과 같다', (t) => {
+  // 실제 블루레이 자막에 가까운 자료. 색이 수십 가지이고, 두 줄을 각각 다른
+  // 객체로 얹은 경우가 들어 있다. 단순한 3색 자료로는 못 밟아 보는 경로다.
+  const expected = golden.pgsRich;
+  if (!expected?.length) return t.skip('한글 글꼴이 없어 만들지 못한 자료입니다');
+
+  const cues = decodeSupFile(new Uint8Array(readFileSync(fixture('rich.sup'))));
+  assert.equal(cues.length, expected.length, '자막 개수');
+  cues.forEach((cue, index) => {
+    assert.equal(cue.startMs, expected[index].startMs, `${index}번 시작 시각`);
+    assert.equal(cue.endMs, expected[index].endMs, `${index}번 끝 시각`);
+    assertSameImage(cue.image, expected[index], `rich ${index}번`);
+  });
+});
+
 test('글자 자막은 그대로 읽힌다', async () => {
   const file = fileFrom('sample.mkv');
   const { tracks, container, context } = await listTracks(file);
