@@ -9,8 +9,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { decodeSupFile } from '../src/pgs.js';
-import { listSubtitleTracks } from '../src/mkv.js';
-import { readTrackCues } from '../src/extract.js';
+import { listTracks, readTrackCues } from '../src/extract.js';
 
 const fixture = (name) => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
 const golden = JSON.parse(readFileSync(fixture('bitmaps.json'), 'utf8'));
@@ -60,11 +59,11 @@ test('PGS: .sup 파일 해독이 파이썬판과 같다', () => {
 
 test('PGS: 영상(MKV) 안의 자막 해독이 파이썬판과 같다', async () => {
   const file = fileFrom('sample.mkv');
-  const { tracks, timestampScale } = await listSubtitleTracks(file);
+  const { tracks, container, context } = await listTracks(file);
   const track = tracks.find((t) => t.mimeType === 'application/pgs');
   assert.ok(track, 'PGS 트랙을 찾지 못했습니다');
 
-  const cues = await readTrackCues(file, track, timestampScale);
+  const cues = await readTrackCues(file, track, container, context);
   const expected = golden.pgsFromMkv;
 
   assert.equal(cues.length, expected.length, '자막 개수');
@@ -77,11 +76,11 @@ test('PGS: 영상(MKV) 안의 자막 해독이 파이썬판과 같다', async ()
 
 test('VobSub: 영상(MKV) 안의 자막 해독이 파이썬판과 같다', async () => {
   const file = fileFrom('sample.mkv');
-  const { tracks, timestampScale } = await listSubtitleTracks(file);
+  const { tracks, container, context } = await listTracks(file);
   const track = tracks.find((t) => t.mimeType === 'application/vobsub');
   assert.ok(track, 'VobSub 트랙을 찾지 못했습니다');
 
-  const cues = await readTrackCues(file, track, timestampScale);
+  const cues = await readTrackCues(file, track, container, context);
   const expected = golden.vobsubFromMkv;
 
   assert.equal(cues.length, expected.length, '자막 개수');
@@ -94,11 +93,11 @@ test('VobSub: 영상(MKV) 안의 자막 해독이 파이썬판과 같다', async
 
 test('글자 자막은 그대로 읽힌다', async () => {
   const file = fileFrom('sample.mkv');
-  const { tracks, timestampScale } = await listSubtitleTracks(file);
+  const { tracks, container, context } = await listTracks(file);
   const track = tracks.find((t) => t.mimeType === 'application/x-subrip');
   assert.ok(track, 'SubRip 트랙을 찾지 못했습니다');
 
-  const cues = await readTrackCues(file, track, timestampScale);
+  const cues = await readTrackCues(file, track, container, context);
   assert.deepEqual(
     cues.map((cue) => cue.text),
     golden.texts,
@@ -106,7 +105,7 @@ test('글자 자막은 그대로 읽힌다', async () => {
 });
 
 test('자막 트랙 목록이 세 개 모두 잡힌다', async () => {
-  const { tracks } = await listSubtitleTracks(fileFrom('sample.mkv'));
+  const { tracks } = await listTracks(fileFrom('sample.mkv'));
   assert.deepEqual(
     tracks.map((t) => t.mimeType),
     ['application/x-subrip', 'application/pgs', 'application/vobsub'],

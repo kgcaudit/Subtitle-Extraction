@@ -32,7 +32,8 @@ const ui = {
 const state = {
   file: null,
   tracks: [],
-  timestampScale: 1000000,
+  container: null,
+  context: {},
   selected: new Set(),
   busy: false,
   objectUrls: [],
@@ -159,22 +160,10 @@ async function openFile(file) {
   say(`${file.name} — 자막 트랙을 찾는 중…`);
 
   try {
-    if (file.name.toLowerCase().endsWith('.sup')) {
-      // 독립된 .sup 자막 파일. 트랙이라는 개념이 없으니 하나로 취급한다.
-      state.tracks = [
-        {
-          trackNumber: 0,
-          subtitleIndex: 0,
-          mimeType: 'application/pgs',
-          language: null,
-          standaloneSup: true,
-        },
-      ];
-    } else {
-      const { tracks, timestampScale } = await listTracks(file);
-      state.tracks = tracks;
-      state.timestampScale = timestampScale;
-    }
+    const { container, tracks, context } = await listTracks(file);
+    state.container = container;
+    state.tracks = tracks;
+    state.context = context;
 
     state.selected = new Set(state.tracks.filter(isSupported).map((t) => t.subtitleIndex));
     renderTracks();
@@ -208,7 +197,7 @@ async function extractSelected() {
       say(`${label} — 자막을 꺼내는 중…`);
       const cues = track.standaloneSup
         ? await readStandaloneSup(state.file)
-        : await readTrackCues(state.file, track, state.timestampScale, (read, total) =>
+        : await readTrackCues(state.file, track, state.container, state.context, (read, total) =>
             showProgress(total ? read / total : null),
           );
       showProgress(null);

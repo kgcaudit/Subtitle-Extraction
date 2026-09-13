@@ -7,7 +7,9 @@
  "expectedSrt": [
   "expected.eng.srt",
   "expected.kor.forced.srt",
-  "expected.kor.srt"
+  "expected.kor.srt",
+  "expected.mp4.eng.srt",
+  "expected.mp4.kor.srt"
  ],
  "hasKorean": true,
  "pgsFromSup": [

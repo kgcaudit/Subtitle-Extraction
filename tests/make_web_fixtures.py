@@ -119,19 +119,49 @@ def main() -> None:
         check=True,
     )
 
+    # --- MP4 (글자 자막 두 개) ---
+    mp4 = FIXTURES / "sample.mp4"
+    subprocess.run(
+        [
+            "ffmpeg", "-v", "error", "-y",
+            "-f", "lavfi", "-i", "color=c=0x402030:s=640x360:d=12:r=5",
+            "-i", str(srt), "-i", str(srt),
+            "-map", "0:v", "-map", "1:s", "-map", "2:s",
+            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+            "-c:s", "mov_text",
+            "-metadata:s:s:0", "language=kor",
+            "-metadata:s:s:1", "language=eng",
+            str(mp4),
+        ],
+        check=True,
+    )
+
+    # --- 자막이 아예 없는 영상 (안내 문구를 시험하려고) ---
+    subprocess.run(
+        [
+            "ffmpeg", "-v", "error", "-y",
+            "-f", "lavfi", "-i", "color=c=black:s=320x180:d=2:r=5",
+            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+            str(FIXTURES / "nosubs.mp4"),
+        ],
+        check=True,
+    )
+
     # --- 파이썬판이 이 영상에서 내는 SRT (웹 전체 흐름의 정답지) ---
     for stale in FIXTURES.glob("expected.*.srt"):
         stale.unlink()
-    subprocess.run(
-        [sys.executable, "-m", "subex", str(mkv), "--outdir", str(FIXTURES), "--overwrite", "-q"],
-        check=True,
-        cwd=ROOT,
-    )
     expected_srt = {}
-    for produced in sorted(FIXTURES.glob("sample.*.srt")):
-        target = FIXTURES / f"expected.{produced.name.split('.', 1)[1]}"
-        produced.replace(target)
-        expected_srt[target.name] = target.read_text(encoding="utf-8")
+    for source, prefix in ((mkv, "expected"), (mp4, "expected.mp4")):
+        subprocess.run(
+            [sys.executable, "-m", "subex", str(source), "--outdir", str(FIXTURES),
+             "--overwrite", "-q"],
+            check=True,
+            cwd=ROOT,
+        )
+        for produced in sorted(FIXTURES.glob("sample.*.srt")):
+            target = FIXTURES / f"{prefix}.{produced.name.split('.', 1)[1]}"
+            produced.replace(target)
+            expected_srt[target.name] = target.read_text(encoding="utf-8")
 
     golden = {
         "texts": texts,

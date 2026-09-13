@@ -29,13 +29,9 @@ async function loadPlaywright() {
   }
 }
 
-test('브라우저 전체 흐름이 파이썬판과 같은 SRT 를 만든다', { timeout: 600000 }, async (t) => {
+/** 브라우저와 개발 서버를 띄우고 page 를 넘겨준다. */
+async function withPage(run) {
   const playwright = await loadPlaywright();
-  if (!playwright || !vendorReady) {
-    t.skip('playwright 또는 vendor/ 가 없습니다 (npm install && npm run vendor)');
-    return;
-  }
-
   const { createStaticServer } = await import('../tools/serve.js');
   const server = createStaticServer();
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -51,46 +47,85 @@ test('브라우저 전체 흐름이 파이썬판과 같은 SRT 를 만든다', {
     const page = await browser.newPage();
     const pageErrors = [];
     page.on('pageerror', (error) => pageErrors.push(error.message));
-
     await page.goto(`http://127.0.0.1:${port}/index.html`);
-    await page.setInputFiles('#file', fixture('sample.mkv'));
-
-    // 자막 트랙 세 개가 잡혀야 한다.
-    await page.waitForFunction(() => document.querySelectorAll('#tracks .track').length === 3, {
-      timeout: 30000,
-    });
-
-    await page.click('#extract');
-    await page.waitForFunction(() => document.querySelectorAll('#results .result').length === 3, {
-      timeout: 540000,
-    });
-
-    const produced = await page.evaluate(async () => {
-      const items = [...document.querySelectorAll('#results .result')];
-      return Promise.all(
-        items.map(async (item) => {
-          const link = item.querySelector('a');
-          const text = await (await fetch(link.href)).text();
-          return { name: link.download, text };
-        }),
-      );
-    });
-
-    assert.deepEqual(pageErrors, [], '브라우저에서 오류가 났습니다');
-
-    const byName = Object.fromEntries(produced.map((item) => [item.name, item.text]));
-    assert.deepEqual(
-      Object.keys(byName).sort(),
-      ['sample.eng.srt', 'sample.kor.forced.srt', 'sample.kor.srt'],
-      '만들어진 파일 이름',
-    );
-
-    for (const [name, actual] of Object.entries(byName)) {
-      const expected = readFileSync(fixture(`expected.${name.slice('sample.'.length)}`), 'utf8');
-      assert.equal(actual, expected, `${name} 의 내용이 파이썬판과 다릅니다`);
-    }
+    await run(page, pageErrors);
   } finally {
     await browser.close();
     server.close();
   }
+}
+
+/** 파일을 넣고 추출을 끝까지 돌린 뒤, 만들어진 SRT 를 이름과 함께 돌려준다. */
+async function extractInBrowser(page, videoName, trackCount) {
+  await page.setInputFiles('#file', fixture(videoName));
+  await page.waitForFunction(
+    (count) => document.querySelectorAll('#tracks .track').length === count,
+    trackCount,
+    { timeout: 30000 },
+  );
+  await page.click('#extract');
+  await page.waitForFunction(
+    (count) => document.querySelectorAll('#results .result').length === count,
+    trackCount,
+    { timeout: 540000 },
+  );
+
+  return page.evaluate(async () => {
+    const items = [...document.querySelectorAll('#results .result')];
+    return Promise.all(
+      items.map(async (item) => {
+        const link = item.querySelector('a');
+        return { name: link.download, text: await (await fetch(link.href)).text() };
+      }),
+    );
+  });
+}
+
+function assertMatchesPython(produced, expectedPrefix, expectedNames) {
+  const byName = Object.fromEntries(produced.map((item) => [item.name, item.text]));
+  assert.deepEqual(Object.keys(byName).sort(), expectedNames, '만들어진 파일 이름');
+
+  for (const [name, actual] of Object.entries(byName)) {
+    const suffix = name.slice(name.indexOf('.') + 1);
+    const expected = readFileSync(fixture(`${expectedPrefix}.${suffix}`), 'utf8');
+    assert.equal(actual, expected, `${name} 의 내용이 파이썬판과 다릅니다`);
+  }
+}
+
+const skipReason = 'playwright 또는 vendor/ 가 없습니다 (npm install && npm run vendor)';
+
+test('MKV: 글자·PGS·VobSub 세 트랙이 파이썬판과 같은 SRT 가 된다', { timeout: 600000 }, async (t) => {
+  if (!(await loadPlaywright()) || !vendorReady) return t.skip(skipReason);
+
+  await withPage(async (page, pageErrors) => {
+    const produced = await extractInBrowser(page, 'sample.mkv', 3);
+    assert.deepEqual(pageErrors, [], '브라우저에서 오류가 났습니다');
+    assertMatchesPython(produced, 'expected', [
+      'sample.eng.srt',
+      'sample.kor.forced.srt',
+      'sample.kor.srt',
+    ]);
+  });
+});
+
+test('MP4: 글자 자막 두 트랙이 파이썬판과 같은 SRT 가 된다', { timeout: 300000 }, async (t) => {
+  if (!(await loadPlaywright()) || !vendorReady) return t.skip(skipReason);
+
+  await withPage(async (page, pageErrors) => {
+    const produced = await extractInBrowser(page, 'sample.mp4', 2);
+    assert.deepEqual(pageErrors, [], '브라우저에서 오류가 났습니다');
+    assertMatchesPython(produced, 'expected.mp4', ['sample.eng.srt', 'sample.kor.srt']);
+  });
+});
+
+test('자막이 없는 영상은 그렇다고 알려 준다', { timeout: 120000 }, async (t) => {
+  if (!(await loadPlaywright())) return t.skip(skipReason);
+
+  await withPage(async (page) => {
+    await page.setInputFiles('#file', fixture('nosubs.mp4'));
+    await page.waitForFunction(() => document.getElementById('status').textContent.includes('자막 트랙이 없습니다'), {
+      timeout: 30000,
+    });
+    assert.equal(await page.isVisible('#trackSection'), false, '트랙 목록이 보이면 안 됩니다');
+  });
 });

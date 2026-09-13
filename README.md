@@ -150,7 +150,7 @@ MIT.
 ## 브라우저판 (권장)
 
 설치 없이 브라우저에서 쓰려면 `web/` 폴더를 보세요. 안드로이드·아이폰·PC·맥 어디서든
-동작하고, 영상을 서버로 올리지 않습니다.
+동작하고, 영상을 서버로 올리지 않습니다. MKV·WebM·MP4·MOV 와 .sup 자막 파일을 읽습니다.
 
 ```bash
 cd web && npm install && npm run vendor && npm run serve

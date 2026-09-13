@@ -1,5 +1,7 @@
-// 브라우저에서 MKV 의 자막 트랙만 뽑아내는 최소 구현.
-// 영상 프레임은 건너뛰고 자막 블록만 모으므로, 파일 전체를 메모리에 올리지 않는다.
+// MKV(Matroska)/WebM 의 자막 트랙만 뽑아낸다.
+// 자막 블록만 모으므로 파일 전체를 메모리에 올리지 않는다.
+
+import { SliceReader, readAscii } from './reader.js';
 
 const ID = {
   SEGMENT: 0x18538067,
@@ -22,36 +24,6 @@ const ID = {
   BLOCK: 0xa1,
   BLOCK_DURATION: 0x9b,
 };
-
-/** 파일을 조각내어 읽는다. 건너뛴 구간은 아예 가져오지 않는다. */
-class SliceReader {
-  constructor(file, chunkSize = 1 << 20) {
-    this.file = file;
-    this.chunkSize = chunkSize;
-    this.buffer = new Uint8Array(0);
-    this.bufferStart = 0;
-    this.bytesFetched = 0;
-  }
-
-  get size() {
-    return this.file.size;
-  }
-
-  /** offset 부터 length 바이트를 담은 뷰를 돌려준다. */
-  async ensure(offset, length) {
-    const end = offset + length;
-    if (offset >= this.bufferStart && end <= this.bufferStart + this.buffer.length) {
-      return this.buffer.subarray(offset - this.bufferStart, end - this.bufferStart);
-    }
-    const fetchLength = Math.min(Math.max(length, this.chunkSize), this.file.size - offset);
-    if (fetchLength <= 0) return new Uint8Array(0);
-    const blob = this.file.slice(offset, offset + fetchLength);
-    this.buffer = new Uint8Array(await blob.arrayBuffer());
-    this.bufferStart = offset;
-    this.bytesFetched += this.buffer.length;
-    return this.buffer.subarray(0, Math.min(length, this.buffer.length));
-  }
-}
 
 function readVint(bytes, position, keepMarker) {
   const first = bytes[position];
@@ -85,12 +57,6 @@ function readUint(bytes) {
   let value = 0;
   for (const byte of bytes) value = value * 256 + byte;
   return value;
-}
-
-function readAscii(bytes) {
-  let text = '';
-  for (const byte of bytes) if (byte) text += String.fromCharCode(byte);
-  return text;
 }
 
 const CODEC_MIME = {
