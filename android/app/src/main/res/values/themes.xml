@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose 가 화면을 그리므로 기본 테마는 시스템 바 색만 맡는다. -->
+    <style name="Theme.Subex" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

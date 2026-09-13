@@ -12,3 +12,10 @@ venv/
 *.sup
 *.idx
 *.sub
+
+# Gradle / Android
+android/**/build/
+android/**/.gradle/
+android/**/.kotlin/
+android/local.properties
+*.apk

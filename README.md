@@ -146,3 +146,15 @@ bitmap→bitmap 만 받습니다) PGS·VobSub 테스트 자료는 `tests/pgs_wri
 ## 라이선스
 
 MIT.
+
+## 안드로이드 앱
+
+폰에서 바로 쓰려면 `android/` 폴더를 보세요. 구글의 Media3 로 자막을 꺼내고
+ML Kit 으로 글자를 읽는 별도 구현이며, ffmpeg·Tesseract 없이 폰 안에서만 동작합니다.
+
+```bash
+cd android/core && gradle test     # 핵심 로직 검증 (안드로이드 SDK 불필요)
+```
+
+`android/core` 의 대조 테스트가 이 파이썬판과 같은 결과를 내는지 확인합니다.
+기준 파일은 `python3 tests/make_parity_golden.py` 로 다시 만들 수 있습니다.
