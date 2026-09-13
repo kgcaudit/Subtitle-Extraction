@@ -7,15 +7,13 @@ dist/
 .venv/
 venv/
 
-# 작업 중 생긴 자막/영상 산출물
+# 작업 중 생긴 자막/영상 산출물 (시험 자료는 예외)
 *.srt
 *.sup
 *.idx
 *.sub
+!web/test/fixtures/*
 
-# Gradle / Android
-android/**/build/
-android/**/.gradle/
-android/**/.kotlin/
-android/local.properties
-*.apk
+# 웹
+web/node_modules/
+web/vendor/

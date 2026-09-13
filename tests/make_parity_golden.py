@@ -1,11 +1,11 @@
-"""파이썬판과 안드로이드판(코틀린)의 결과가 같은지 대조할 기준 파일을 만든다.
+"""파이썬판과 웹판(자바스크립트)의 결과가 같은지 대조할 기준 파일을 만든다.
 
 파이썬판은 실제 영상으로 검증을 끝낸 구현이므로 이쪽을 '정답지'로 삼는다.
-여기서 만든 파일을 코틀린 쪽 테스트가 그대로 읽어서 같은 답이 나오는지 본다.
+여기서 만든 파일을 웹(자바스크립트) 쪽 테스트가 그대로 읽어서 같은 답이 나오는지 본다.
 
     python3 tests/make_parity_golden.py
 
-결과: android/core/src/test/resources/parity.txt
+결과: web/test/fixtures/parity.txt
 """
 
 from __future__ import annotations
@@ -100,7 +100,7 @@ def build() -> str:
 
 
 def main() -> None:
-    target = Path(__file__).resolve().parent.parent / "android/core/src/test/resources/parity.txt"
+    target = Path(__file__).resolve().parent.parent / "web/test/fixtures/parity.txt"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(build(), encoding="utf-8", newline="\n")
     print(f"{len(CASES)}개 경우를 {target} 에 기록했습니다.")

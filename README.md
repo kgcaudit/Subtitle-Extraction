@@ -147,14 +147,16 @@ bitmap→bitmap 만 받습니다) PGS·VobSub 테스트 자료는 `tests/pgs_wri
 
 MIT.
 
-## 안드로이드 앱
+## 브라우저판 (권장)
 
-폰에서 바로 쓰려면 `android/` 폴더를 보세요. 구글의 Media3 로 자막을 꺼내고
-ML Kit 으로 글자를 읽는 별도 구현이며, ffmpeg·Tesseract 없이 폰 안에서만 동작합니다.
+설치 없이 브라우저에서 쓰려면 `web/` 폴더를 보세요. 안드로이드·아이폰·PC·맥 어디서든
+동작하고, 영상을 서버로 올리지 않습니다.
 
 ```bash
-cd android/core && gradle test     # 핵심 로직 검증 (안드로이드 SDK 불필요)
+cd web && npm install && npm run vendor && npm run serve
 ```
 
-`android/core` 의 대조 테스트가 이 파이썬판과 같은 결과를 내는지 확인합니다.
-기준 파일은 `python3 tests/make_parity_golden.py` 로 다시 만들 수 있습니다.
+브라우저판은 이 파이썬판을 정답지로 삼아 검증합니다. 진짜 크로미움에서 영상을 끝까지
+돌려 만들어진 SRT 가 파이썬판 결과와 바이트 단위로 같은지 확인합니다(`cd web && npm test`).
+기준 자료는 `python3 tests/make_web_fixtures.py` 와 `python3 tests/make_parity_golden.py`
+로 다시 만들 수 있습니다.

@@ -1,0 +1,16 @@
+{
+  "name": "subex-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "브라우저에서 영상 자막을 SRT 로 추출한다",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\"",
+    "serve": "node tools/serve.js",
+    "vendor": "node tools/vendor.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0",
+    "tesseract.js": "^7.0.0"
+  }
+}

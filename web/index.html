@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>영상 자막 추출</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main class="page">
+  <header class="head">
+    <h1>영상 자막 추출</h1>
+    <p class="lead">
+      영상에 들어 있는 자막을 SRT 파일로 뽑습니다. 자막이 그림으로 들어 있으면
+      글자로 읽어 냅니다. <strong>영상은 이 기기 밖으로 나가지 않습니다.</strong>
+    </p>
+  </header>
+
+  <section>
+    <label class="drop" id="drop" for="file">
+      <input type="file" id="file" accept="video/*,.mkv,.webm,.sup" hidden>
+      <span class="drop-title">영상 파일을 고르거나 여기에 끌어다 놓으세요</span>
+      <span class="drop-note">MKV · WebM, 그리고 .sup 자막 파일</span>
+    </label>
+    <p class="status" id="status" role="status" aria-live="polite"></p>
+    <div class="bar" id="bar" hidden><div class="bar-fill" id="barFill"></div></div>
+  </section>
+
+  <section id="trackSection" hidden>
+    <h2>자막 트랙</h2>
+    <ul class="tracks" id="tracks"></ul>
+    <button class="primary" id="extract" type="button">선택한 자막 추출</button>
+  </section>
+
+  <section id="resultSection" hidden>
+    <h2>결과</h2>
+    <ul class="results" id="results"></ul>
+  </section>
+
+  <footer class="foot">
+    <p>
+      처리는 전부 이 브라우저 안에서 이뤄집니다. 파일을 서버로 올리지 않습니다.
+    </p>
+  </footer>
+</main>
+
+<script type="module" src="src/app.js"></script>
+</body>
+</html>

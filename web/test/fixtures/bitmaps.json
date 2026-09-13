@@ -1,0 +1,105 @@
+{
+ "texts": [
+  "Hello world\nsecond line",
+  "안녕하세요 자막입니다",
+  "Mixed 한글 and English 2026"
+ ],
+ "expectedSrt": [
+  "expected.eng.srt",
+  "expected.kor.forced.srt",
+  "expected.kor.srt"
+ ],
+ "hasKorean": true,
+ "pgsFromSup": [
+  {
+   "startMs": 1000,
+   "endMs": 3500,
+   "width": 229,
+   "height": 94,
+   "rgba": "pgs_sup.0.rgba"
+  },
+  {
+   "startMs": 4000,
+   "endMs": 6500,
+   "width": 426,
+   "height": 44,
+   "rgba": "pgs_sup.1.rgba"
+  },
+  {
+   "startMs": 7000,
+   "endMs": 9500,
+   "width": 585,
+   "height": 47,
+   "rgba": "pgs_sup.2.rgba"
+  }
+ ],
+ "pgsFromMkv": [
+  {
+   "startMs": 0,
+   "endMs": 2500,
+   "width": 229,
+   "height": 94,
+   "rgba": "pgs_mkv.0.rgba"
+  },
+  {
+   "startMs": 3000,
+   "endMs": 5500,
+   "width": 426,
+   "height": 44,
+   "rgba": "pgs_mkv.1.rgba"
+  },
+  {
+   "startMs": 6000,
+   "endMs": 8500,
+   "width": 585,
+   "height": 47,
+   "rgba": "pgs_mkv.2.rgba"
+  }
+ ],
+ "vobsubFromIdx": [
+  {
+   "startMs": 1000,
+   "endMs": 3503,
+   "width": 148,
+   "height": 65,
+   "rgba": "vobsub_idx.0.rgba"
+  },
+  {
+   "startMs": 4000,
+   "endMs": 6503,
+   "width": 273,
+   "height": 30,
+   "rgba": "vobsub_idx.1.rgba"
+  },
+  {
+   "startMs": 7000,
+   "endMs": 9503,
+   "width": 373,
+   "height": 32,
+   "rgba": "vobsub_idx.2.rgba"
+  }
+ ],
+ "vobsubFromMkv": [
+  {
+   "startMs": 1000,
+   "endMs": 3503,
+   "width": 148,
+   "height": 65,
+   "rgba": "vobsub_mkv.0.rgba"
+  },
+  {
+   "startMs": 4000,
+   "endMs": 6503,
+   "width": 273,
+   "height": 30,
+   "rgba": "vobsub_mkv.1.rgba"
+  },
+  {
+   "startMs": 7000,
+   "endMs": 9503,
+   "width": 373,
+   "height": 32,
+   "rgba": "vobsub_mkv.2.rgba"
+  }
+ ]
+}
