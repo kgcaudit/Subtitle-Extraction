@@ -10,16 +10,9 @@ import { probe, readSamples } from './container.js';
 import { PgsDecoder, splitSampleSegments } from './pgs.js';
 import { readAscii, u16, u32 } from './reader.js';
 import { decodeSpu, parseIdxPalette } from './vobsub.js';
+import { MIME } from './mime.js';
 
-export const MIME = {
-  PGS: 'application/pgs',
-  VOBSUB: 'application/vobsub',
-  DVBSUBS: 'application/dvbsubs',
-  SUBRIP: 'application/x-subrip',
-  SSA: 'text/x-ssa',
-  VTT: 'text/vtt',
-  TX3G: 'application/x-quicktime-tx3g',
-};
+export { MIME };
 
 /** 그림으로 들어 있어 문자 인식을 거쳐야 하는 형식. */
 export const BITMAP_MIME_TYPES = new Set([MIME.PGS, MIME.VOBSUB]);
@@ -90,8 +83,8 @@ export function describeTrack(track) {
 }
 
 /** 파일 안의 자막 트랙 목록. */
-export async function listTracks(file) {
-  return probe(file);
+export async function listTracks(file, options) {
+  return probe(file, options);
 }
 
 /**
@@ -132,7 +125,10 @@ function decodeSamples(samples, track) {
   }
 
   if (track.mimeType === MIME.VOBSUB) {
-    const palette = parseIdxPalette(decodeUtf8(track.codecPrivate));
+    // .idx 를 직접 읽었으면 글자 그대로, MKV 안에서 왔으면 바이트로 들어온다.
+    const palette = parseIdxPalette(
+      typeof track.codecPrivate === 'string' ? track.codecPrivate : decodeUtf8(track.codecPrivate),
+    );
     return samples.map((sample) => {
       const decoded = decodeSpu(sample.data, palette);
       if (!decoded) return { startMs: sample.startMs, durationMs: null, content: null };

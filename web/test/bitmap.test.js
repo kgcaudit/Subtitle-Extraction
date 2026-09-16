@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 import { decodeSupFile } from '../src/pgs.js';
 import { listTracks, readTrackCues } from '../src/extract.js';
+import { looksLikeIdx, parseIdx } from '../src/vobsubFile.js';
 
 const fixture = (name) => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
 const golden = JSON.parse(readFileSync(fixture('bitmaps.json'), 'utf8'));
@@ -91,6 +92,76 @@ test('VobSub: 영상(MKV) 안의 자막 해독이 파이썬판과 같다', async
   });
 });
 
+test('VobSub: .idx/.sub 짝을 직접 넣은 것이 파이썬판과 같다', async () => {
+  // DVD 자막을 따로 뽑아 두면 늘 이 두 파일이 같이 다닌다. 영상 없이 이 짝만
+  // 넣어도 읽혀야 한다. 파이썬판은 ffprobe 로, 웹판은 프로그램 스트림을 직접
+  // 훑어 읽으므로, 서로 완전히 다른 길로 같은 답에 닿는지를 보는 시험이다.
+  const file = fileFrom('sample.sub');
+  const indexText = readFileSync(fixture('sample.idx'), 'utf8');
+
+  const { tracks, container, context } = await listTracks(file, { indexText });
+  assert.equal(container, 'vobsub');
+  assert.equal(tracks.length, 1, '자막 트랙 개수');
+  assert.equal(tracks[0].language, 'ko', '언어');
+  assert.equal(tracks[0].mimeType, 'application/vobsub');
+
+  const cues = await readTrackCues(file, tracks[0], container, context);
+  const expected = golden.vobsubFromIdx;
+
+  assert.equal(cues.length, expected.length, '자막 개수');
+  cues.forEach((cue, index) => {
+    assert.equal(cue.startMs, expected[index].startMs, `${index}번 시작 시각`);
+    assert.equal(cue.endMs, expected[index].endMs, `${index}번 끝 시각`);
+    assertSameImage(cue.image, expected[index], `idx/sub ${index}번`);
+  });
+});
+
+test('VobSub: .sub 만 주면 .idx 도 필요하다고 알려 준다', async () => {
+  // 짝이 안 맞으면 말없이 실패하지 않고 무엇이 더 필요한지 말해 줘야 한다.
+  await assert.rejects(() => listTracks(fileFrom('sample.sub')), (error) => {
+    assert.match(error.message, /\.idx/, '어느 파일이 더 필요한지 알려 줘야 합니다');
+    return true;
+  });
+});
+
+test('VobSub: .idx 표를 언어별로 갈라 읽는다', () => {
+  const text = [
+    '# VobSub index file, v7',
+    'size: 720x480',
+    'palette: 000000, ffffff, 000000, 808080',
+    '',
+    'id: ko, index: 0',
+    'timestamp: 00:00:01:000, filepos: 000000000',
+    'timestamp: 00:01:02:340, filepos: 000000800',
+    '',
+    'id: en, index: 1',
+    'timestamp: 01:02:03:456, filepos: 0000ff000',
+    '',
+    'id: ja, index: 2',   // 표가 비어 있는 언어는 트랙으로 내놓지 않는다
+    '',
+  ].join('\n');
+
+  assert.ok(looksLikeIdx(text), '.idx 로 알아봐야 합니다');
+  const index = parseIdx(text);
+
+  assert.equal(index.width, 720);
+  assert.equal(index.height, 480);
+  assert.equal(index.streams.length, 2, '표가 있는 언어만 남아야 합니다');
+
+  const [korean, english] = index.streams;
+  assert.equal(korean.language, 'ko');
+  assert.equal(korean.substreamId, 0x20, '자막 번호는 0x20 부터 매긴다');
+  assert.deepEqual(
+    korean.entries,
+    [{ startMs: 1000, filePos: 0 }, { startMs: 62340, filePos: 0x800 }],
+    '시각(시:분:초:밀리초)과 자리(16진수)',
+  );
+
+  assert.equal(english.language, 'en');
+  assert.equal(english.substreamId, 0x21);
+  assert.deepEqual(english.entries, [{ startMs: 3723456, filePos: 0xff000 }]);
+});
+
 test('PGS: 안티에일리어싱·여러 객체 자막도 파이썬판과 같다', (t) => {
   // 실제 블루레이 자막에 가까운 자료. 색이 수십 가지이고, 두 줄을 각각 다른
   // 객체로 얹은 경우가 들어 있다. 단순한 3색 자료로는 못 밟아 보는 경로다.
@@ -126,4 +197,73 @@ test('자막 트랙 목록이 세 개 모두 잡힌다', async () => {
     ['application/x-subrip', 'application/pgs', 'application/vobsub'],
   );
   assert.deepEqual(tracks.map((t) => t.language), ['eng', 'kor', 'kor']);
+});
+
+test('인식 언어 고르기: 실측한 세 경우를 그대로 가른다', async () => {
+  // 실제로 재어 본 값이다. 여기가 어긋나면 자동 선택이 뒤집힌 것이다.
+  const { decideLanguage } = await import('../src/ocr.js');
+
+  assert.equal(
+    decideLanguage({ latinWords: 0, totalWords: 31, latinConfidence: 0 }).language,
+    'kor',
+    '한글 전용(합성): 영문이 아예 없다',
+  );
+
+  assert.equal(
+    decideLanguage({ latinWords: 5, totalWords: 88, latinConfidence: 54.8 }).language,
+    'kor',
+    '한글 전용(실제 DVD 자막): 기울어진 노래 가사가 영문으로 잘못 읽히지만 몇 개뿐이다',
+  );
+
+  assert.equal(
+    decideLanguage({ latinWords: 7, totalWords: 13, latinConfidence: 95.4 }).language,
+    'kor+eng',
+    '한·영 혼합: 낱말의 절반이 영문이고 확신도도 높다',
+  );
+
+  // 비율만 높고 확신도가 낮으면(한글을 통째로 영문으로 오독) 영어를 붙이지 않는다.
+  assert.equal(
+    decideLanguage({ latinWords: 20, totalWords: 30, latinConfidence: 16.8 }).language,
+    'kor',
+    '확신도가 낮으면 비율이 높아도 진짜 영문이 아니다',
+  );
+});
+
+/** 시험용 MPEG 프로그램 스트림 조각을 만든다: 팩 머리 + private_stream_1 패킷. */
+function programStreamPacket(substreamId, payload) {
+  const pack = [0x00, 0x00, 0x01, 0xba, 0x44, 0x00, 0x04, 0x00, 0x04, 0x01, 0x00, 0x00, 0x03, 0xf8];
+  const packetLength = 3 + payload.length + 1; // 플래그 2 + 머리길이 1 + 자막번호 1 + 알맹이
+  const pes = [
+    0x00, 0x00, 0x01, 0xbd,
+    (packetLength >> 8) & 0xff, packetLength & 0xff,
+    0x81, 0x00, 0x00,          // 플래그 2바이트 + 머리 길이 0
+    substreamId,
+    ...payload,
+  ];
+  return [...pack, ...pes];
+}
+
+test('VobSub: 언어가 여러 개면 그 언어의 자막만 골라 이어 붙인다', async () => {
+  // .sub 안에서는 여러 언어의 자막이 섞여 있다. 자막 번호(0x20, 0x21 …)로
+  // 갈라 읽지 않으면 남의 언어 조각이 딸려 들어온다.
+  const { readVobsubSamples } = await import('../src/vobsubFile.js');
+
+  // 우리가 찾는 자막(0x21)은 두 조각에 나뉘어 있고, 그 사이에 다른 언어(0x20)가 끼어 있다.
+  const bytes = new Uint8Array([
+    ...programStreamPacket(0x21, [0x00, 0x08, 0xaa, 0xbb]),   // 길이 8 이라 적고 4바이트
+    ...programStreamPacket(0x20, [0xff, 0xff, 0xff, 0xff]),   // 남의 언어 — 건너뛰어야 한다
+    ...programStreamPacket(0x21, [0xcc, 0xdd, 0xee, 0xff]),   // 나머지 4바이트
+  ]);
+
+  const file = new File([bytes], 'two.sub');
+  const stream = { substreamId: 0x21, entries: [{ startMs: 1000, filePos: 0 }] };
+  const { samples } = await readVobsubSamples(file, stream);
+
+  assert.equal(samples.length, 1, '자막 덩어리 개수');
+  assert.equal(samples[0].startMs, 1000);
+  assert.deepEqual(
+    [...samples[0].data],
+    [0x00, 0x08, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff],
+    '앞 2바이트에 적힌 길이(8)만큼, 남의 언어는 빼고 이어 붙여야 합니다',
+  );
 });

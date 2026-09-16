@@ -55,9 +55,13 @@ async function withPage(run) {
   }
 }
 
-/** 파일을 넣고 추출을 끝까지 돌린 뒤, 만들어진 SRT 를 이름과 함께 돌려준다. */
+/**
+ * 파일을 넣고 추출을 끝까지 돌린 뒤, 만들어진 SRT 를 이름과 함께 돌려준다.
+ * DVD 자막(.idx/.sub)처럼 두 파일이 짝인 경우를 위해 이름 여럿도 받는다.
+ */
 async function extractInBrowser(page, videoName, trackCount) {
-  await page.setInputFiles('#file', fixture(videoName));
+  const names = Array.isArray(videoName) ? videoName : [videoName];
+  await page.setInputFiles('#file', names.map(fixture));
   await page.waitForFunction(
     (count) => document.querySelectorAll('#tracks .track').length === count,
     trackCount,
@@ -208,6 +212,47 @@ test('자막이 없는 영상은 그렇다고 알려 준다', { timeout: 120000 
     await page.waitForFunction(() => document.getElementById('status').textContent.includes('자막 트랙이 없습니다'), {
       timeout: 30000,
     });
+    assert.equal(await page.isVisible('#trackSection'), false, '트랙 목록이 보이면 안 됩니다');
+  });
+});
+
+test('VobSub: .idx/.sub 짝을 화면에 넣어도 끝까지 처리된다', { timeout: 300000 }, async (t) => {
+  if (!(await loadPlaywright()) || !vendorReady) return t.skip(skipReason);
+
+  // 영상 없이 자막 파일 두 개만 있는 경우다. 파일 고르기에서 둘을 함께 넣는다.
+  await withPage(async (page, pageErrors) => {
+    const produced = await extractInBrowser(page, ['sample.idx', 'sample.sub'], 1);
+    assert.deepEqual(pageErrors, [], '브라우저에서 오류가 났습니다');
+    assert.equal(produced.length, 1);
+
+    // 이름은 .idx 가 아니라 알맹이가 든 .sub 과 그 안의 언어(ko)에서 온다.
+    assert.equal(produced[0].name, 'sample.ko.srt', '만들어진 파일 이름');
+
+    // 시각은 파이썬판이 같은 .idx 를 읽어 낸 값과 정확히 같아야 한다.
+    const golden = JSON.parse(readFileSync(fixture('bitmaps.json'), 'utf8'));
+    const stamp = (ms) => {
+      const pad = (value, width = 2) => String(value).padStart(width, '0');
+      return `${pad(Math.floor(ms / 3600000))}:${pad(Math.floor(ms / 60000) % 60)}:` +
+        `${pad(Math.floor(ms / 1000) % 60)},${pad(ms % 1000, 3)}`;
+    };
+    const expectedTimes = golden.vobsubFromIdx.map((cue) => `${stamp(cue.startMs)} --> ${stamp(cue.endMs)}`);
+    const actualTimes = [...produced[0].text.matchAll(/\d\d:\d\d:\d\d,\d\d\d --> \d\d:\d\d:\d\d,\d\d\d/g)]
+      .map((match) => match[0]);
+    assert.deepEqual(actualTimes, expectedTimes, '시각이 파이썬판과 다릅니다');
+  });
+});
+
+test('VobSub: .idx 만 넣으면 .sub 도 필요하다고 화면에 알려 준다', { timeout: 120000 }, async (t) => {
+  if (!(await loadPlaywright())) return t.skip(skipReason);
+
+  await withPage(async (page) => {
+    await page.setInputFiles('#file', fixture('sample.idx'));
+    await page.waitForFunction(
+      () => document.getElementById('status').classList.contains('error'),
+      { timeout: 30000 },
+    );
+    const status = await page.textContent('#status');
+    assert.match(status, /\.sub/, `무엇이 더 필요한지 알려 줘야 합니다: ${status}`);
     assert.equal(await page.isVisible('#trackSection'), false, '트랙 목록이 보이면 안 됩니다');
   });
 });

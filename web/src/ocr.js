@@ -13,10 +13,36 @@ const PAGE_SEG_MODE_SINGLE_BLOCK = '6';
 const AUTO_SAMPLE_SIZE = 12;
 
 /**
- * 라틴 낱말 신뢰도가 이 값보다 낮으면 '진짜 영문' 이 아니라고 본다.
- * 실측: 한글 전용 자막 16.8, 한·영 혼합 자막 95.0 — 그 사이에 둔다.
+ * '진짜 영문이 섞여 있다' 고 인정하는 두 조건. 둘 다 맞아야 한다.
+ *
+ * 하나만 보면 놓친다. 실측값:
+ *
+ *   자료                      라틴 낱말 비율   확신도
+ *   한글 전용(합성)                  0.0%       —
+ *   한글 전용(실제 DVD 자막)         5.7%      54.8   ← 확신도만 보면 속는다
+ *   한·영 혼합(합성)                53.8%      95.4
+ *
+ * 실제 자막에서는 기울어진 노래 가사처럼 읽기 어려운 줄이 라틴 낱말로 잘못
+ * 읽히는데, 그 확신도가 어중간하게 높다. 다만 그런 것은 '몇 개뿐' 이다.
+ * 진짜 영문이 섞인 자막이라면 낱말의 상당수가 영문이다. 그래서 비율도 함께 본다.
  */
 const LATIN_IS_REAL_CONFIDENCE = 50;
+const LATIN_IS_REAL_SHARE = 0.2;
+
+/**
+ * 세어 본 결과로 인식 언어를 정한다. 인식기 없이도 시험할 수 있게 따로 두었다.
+ *
+ * 한쪽으로 치우쳐 판단한다. 한글 전용 자막을 '한국어+영어' 로 읽으면 멀쩡한
+ * 한글 낱말이 영문으로 뭉개진다(실측: 300줄 중 83줄, 28%). 반대로 영문이 조금
+ * 섞인 자막을 '한국어만' 으로 읽으면 그 영문 몇 낱말만 깨진다. 그래서 '영문이
+ * 진짜로 섞여 있다' 는 증거가 뚜렷할 때만 영어를 함께 쓴다.
+ */
+export function decideLanguage({ latinWords = 0, totalWords = 0, latinConfidence = 0 } = {}) {
+  const latinShare = totalWords ? latinWords / totalWords : 0;
+  const hasRealLatin =
+    latinWords > 0 && latinConfidence >= LATIN_IS_REAL_CONFIDENCE && latinShare >= LATIN_IS_REAL_SHARE;
+  return { language: hasRealLatin ? DEFAULT_LANGUAGE : 'kor', latinShare };
+}
 
 const LATIN_WORD = /^[^\uAC00-\uD7A3]*[A-Za-z][^\uAC00-\uD7A3]*$/;
 
@@ -83,15 +109,9 @@ export async function pickLanguage(assets, images) {
   }
 
   const latinConfidence = latinWords ? latinConfidenceSum / latinWords : 0;
-  const hasRealLatin = latinWords > 0 && latinConfidence >= LATIN_IS_REAL_CONFIDENCE;
+  const { language, latinShare } = decideLanguage({ latinWords, totalWords, latinConfidence });
 
-  return {
-    language: hasRealLatin ? DEFAULT_LANGUAGE : 'kor',
-    latinWords,
-    totalWords,
-    latinConfidence,
-    sampleSize: sample.length,
-  };
+  return { language, latinWords, totalWords, latinConfidence, latinShare, sampleSize: sample.length };
 }
 
 function wordsOf(data) {

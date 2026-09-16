@@ -11,6 +11,7 @@ import {
   uniqueFileName,
 } from './extract.js';
 import { decodeSupFile } from './pgs.js';
+import { pickSource } from './source.js';
 import { prepareForOcr } from './bitmapPrep.js';
 import { OcrPool, pickLanguage } from './ocr.js';
 import { tidy } from './postprocess.js';
@@ -41,6 +42,7 @@ function ocrSettings() {
 
 const state = {
   file: null,
+  indexText: null,
   tracks: [],
   container: null,
   context: {},
@@ -163,8 +165,29 @@ function clearResults() {
 
 // --- 동작 -----------------------------------------------------------------
 
-async function openFile(file) {
+async function openFiles(files) {
+  clearResults();
+  ui.trackSection.hidden = true;
+  setBusy(true);
+
+  let source;
+  try {
+    source = await pickSource(files);
+  } catch (error) {
+    setBusy(false);
+    say(error.message, true);
+    return;
+  }
+  if (!source) {
+    setBusy(false);
+    return;
+  }
+  await openFile(source.file, source.indexText);
+}
+
+async function openFile(file, indexText = null) {
   state.file = file;
+  state.indexText = indexText;
   state.tracks = [];
   state.selected = new Set();
   clearResults();
@@ -173,7 +196,7 @@ async function openFile(file) {
   say(`${file.name} — 자막 트랙을 찾는 중…`);
 
   try {
-    const { container, tracks, context } = await listTracks(file);
+    const { container, tracks, context } = await listTracks(file, { indexText });
     state.container = container;
     state.tracks = tracks;
     state.context = context;
@@ -268,7 +291,8 @@ async function startOcr(language, images) {
     const decision = await pickLanguage(assets, images);
     chosen = decision.language;
     const detail = decision.latinWords
-      ? `영문 낱말 ${decision.latinWords}개, 확신도 ${decision.latinConfidence.toFixed(0)}`
+      ? `낱말 ${decision.totalWords}개 중 영문 ${decision.latinWords}개` +
+        `(${(decision.latinShare * 100).toFixed(0)}%), 확신도 ${decision.latinConfidence.toFixed(0)}`
       : '영문이 보이지 않음';
     const notice = `인식 언어를 '${LANGUAGE_LABELS[chosen] ?? chosen}' 로 정했습니다 (${detail})`;
     state.languageNotice = notice;
@@ -309,8 +333,8 @@ async function recognizeCues(cues, prepared, pool, label) {
 // --- 붙이기 ---------------------------------------------------------------
 
 ui.file.addEventListener('change', () => {
-  const file = ui.file.files?.[0];
-  if (file) openFile(file);
+  const files = ui.file.files;
+  if (files?.length) openFiles(files);
 });
 
 ui.extract.addEventListener('click', extractSelected);
@@ -326,8 +350,8 @@ for (const type of ['dragleave', 'drop']) {
 }
 ui.drop.addEventListener('drop', (event) => {
   event.preventDefault();
-  const file = event.dataTransfer?.files?.[0];
-  if (file && !state.busy) openFile(file);
+  const files = event.dataTransfer?.files;
+  if (files?.length && !state.busy) openFiles(files);
 });
 
 setBusy(false);

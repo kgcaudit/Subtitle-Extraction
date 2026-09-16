@@ -1,6 +1,7 @@
 // 실제 영상으로 웹판을 검증한다.
 //
 //   node tools/verify.js 영상파일 [옵션]
+//   node tools/verify.js 자막.idx 자막.sub [옵션]     DVD 자막은 두 파일이 짝이다
 //
 //     --lang auto       인식 언어: auto | kor | kor+eng | eng (기본 auto)
 //     --scale 2         확대 배율 (기본 2)
@@ -36,7 +37,11 @@ function parseArgs(argv) {
     else if (arg === '--no-python') options.python = false;
     else rest.push(arg);
   }
-  options.video = rest[0];
+  // DVD 자막(.idx/.sub)은 두 파일을 함께 받는다. 그 밖에는 하나면 된다.
+  options.inputs = rest;
+  options.video = rest.find((name) => !name.toLowerCase().endsWith('.idx')) ?? rest[0];
+  // 파이썬판은 .idx 를 받아야 표를 읽는다.
+  options.pythonInput = rest.find((name) => name.toLowerCase().endsWith('.idx')) ?? options.video;
   return options;
 }
 
@@ -57,8 +62,13 @@ function levenshtein(a, b) {
   return previous[b.length];
 }
 
-/** 파이썬판을 같은 영상에 돌려 SRT 를 받아 온다. 없으면 null. */
-function runPython(video, outDir) {
+/**
+ * 파이썬판을 같은 영상에 돌려 SRT 를 받아 온다. 없으면 null.
+ *
+ * 인식 언어는 웹판이 실제로 쓴 것과 맞춘다. 안 맞추면 양쪽이 다른 언어로 읽은
+ * 결과를 견주게 되어, 해독이 멀쩡한데도 글자가 다르다고 나온다.
+ */
+function runPython(video, outDir, ocrLang) {
   const root = fileURLToPath(new URL('../..', import.meta.url));
   const probe = spawnSync('python3', ['-c', 'import subex'], { cwd: root });
   if (probe.status !== 0) return null;
@@ -70,7 +80,12 @@ function runPython(video, outDir) {
   // 파이썬판은 저장소 뿌리에서 돌리므로 경로를 절대 경로로 바꿔 넘긴다.
   const result = spawnSync(
     'python3',
-    ['-m', 'subex', resolve(video), '--outdir', resolve(temp), '--overwrite', '-q'],
+    [
+      '-m', 'subex', resolve(video),
+      '--outdir', resolve(temp),
+      ...(ocrLang ? ['--ocr-lang', ocrLang] : []),
+      '--overwrite', '-q',
+    ],
     { cwd: root, encoding: 'utf8' },
   );
   if (result.status !== 0) {
@@ -118,8 +133,13 @@ function compare(name, webSrt, pythonSrt) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  if (!options.video || !existsSync(options.video)) {
-    console.error('영상 파일을 지정하세요.  node tools/verify.js 영상파일 [--lang kor+eng] [--scale 2] [--dump 5]');
+  const missing = options.inputs.filter((name) => !existsSync(name));
+  if (!options.inputs.length || missing.length) {
+    console.error(
+      missing.length ? `찾을 수 없는 파일: ${missing.join(', ')}` : '영상 파일을 지정하세요.',
+    );
+    console.error('  node tools/verify.js 영상파일 [--lang kor+eng] [--scale 2] [--dump 5]');
+    console.error('  node tools/verify.js 자막.idx 자막.sub          (DVD 자막은 두 파일이 짝)');
     process.exit(1);
   }
 
@@ -144,7 +164,7 @@ async function main() {
 
     await page.goto(`http://127.0.0.1:${port}/tools/verify.html`);
     await page.waitForFunction(() => document.getElementById('out').textContent === 'ready');
-    await page.setInputFiles('#file', options.video);
+    await page.setInputFiles('#file', options.inputs);
 
     console.log(`\n== ${basename(options.video)} ==`);
     const report = await page.evaluate(
@@ -158,7 +178,8 @@ async function main() {
     if (report.languageDecision) {
       const d = report.languageDecision;
       const detail = d.latinWords
-        ? `표본 ${d.sampleSize}장에서 영문 낱말 ${d.latinWords}/${d.totalWords}개, 확신도 ${d.latinConfidence.toFixed(1)}`
+        ? `표본 ${d.sampleSize}장에서 영문 낱말 ${d.latinWords}/${d.totalWords}개 ` +
+          `(${(d.latinShare * 100).toFixed(1)}%), 확신도 ${d.latinConfidence.toFixed(1)}`
         : `표본 ${d.sampleSize}장에서 영문이 보이지 않음`;
       console.log(`인식 언어     : ${report.language} (자동 선택 — ${detail})`);
     }
@@ -195,8 +216,10 @@ async function main() {
     }
 
     if (options.python) {
-      console.log('\n-- 파이썬판과 대조 --');
-      const pythonSrt = runPython(options.video, outDir);
+      // 웹판이 자동으로 고른 언어가 있으면 그것을, 없으면 지정한 것을 쓴다.
+      const ocrLang = report.language ?? (options.lang === 'auto' ? null : options.lang);
+      console.log(`\n-- 파이썬판과 대조 -- ${ocrLang ? `(양쪽 다 인식 언어 ${ocrLang})` : ''}`);
+      const pythonSrt = runPython(options.pythonInput, outDir, ocrLang);
       if (!pythonSrt) {
         console.log('  파이썬판을 쓸 수 없어 건너뜁니다 (ffmpeg·tesseract 가 필요합니다).');
       } else {

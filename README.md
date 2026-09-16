@@ -152,7 +152,8 @@ MIT.
 **바로 쓰기: https://kgcaudit.github.io/Subtitle-Extraction/**
 
 설치 없이 브라우저에서 쓰려면 `web/` 폴더를 보세요. 안드로이드·아이폰·PC·맥 어디서든
-동작하고, 영상을 서버로 올리지 않습니다. MKV·WebM·MP4·MOV 와 .sup 자막 파일을 읽습니다.
+동작하고, 영상을 서버로 올리지 않습니다. MKV·WebM·MP4·MOV 와 .sup 자막 파일,
+그리고 DVD 자막 **.idx + .sub 짝**(두 파일을 함께 고릅니다)을 읽습니다.
 
 ```bash
 cd web && npm install && npm run vendor && npm run serve

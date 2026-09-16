@@ -2,7 +2,7 @@
 <html lang="ko">
 <head><meta charset="utf-8"><title>검증용 실행기</title></head>
 <body>
-<input type="file" id="file">
+<input type="file" id="file" multiple>
 <pre id="out">준비 중…</pre>
 
 <script type="module">
@@ -21,6 +21,7 @@ import {
   uniqueFileName,
 } from '../src/extract.js';
 import { decodeSupFile } from '../src/pgs.js';
+import { pickSource } from '../src/source.js';
 import { prepareForOcr } from '../src/bitmapPrep.js';
 import { OcrPool, pickLanguage } from '../src/ocr.js';
 import { tidy } from '../src/postprocess.js';
@@ -38,11 +39,12 @@ async function toDataUrl(image) {
 }
 
 window.runVerify = async function runVerify({ language = 'kor+eng', scale = 2, dumpCount = 0 } = {}) {
-  const file = document.getElementById('file').files[0];
+  // 화면(app.js)과 같은 규칙으로 .idx/.sub 짝을 묶는다.
+  const { file, indexText } = await pickSource(document.getElementById('file').files);
   const started = performance.now();
 
   const probeStart = performance.now();
-  const { container, tracks, context } = await listTracks(file);
+  const { container, tracks, context } = await listTracks(file, { indexText });
   const probeMs = performance.now() - probeStart;
 
   const report = {
