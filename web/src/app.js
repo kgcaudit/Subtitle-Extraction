@@ -1,6 +1,6 @@
 // 화면 동작. 파일 고르기 → 트랙 목록 → 추출 → 내려받기.
 
-import { loadScript, resolveAssets } from './config.js';
+import { ensureTesseract } from './config.js';
 import {
   describeTrack,
   formatName,
@@ -259,9 +259,8 @@ const LANGUAGE_LABELS = { kor: '한국어만', 'kor+eng': '한국어+영어', en
 
 async function startOcr(language, images) {
   say('문자 인식 엔진을 준비하는 중…');
-  assetsPromise ??= resolveAssets();
+  assetsPromise ??= ensureTesseract();
   const assets = await assetsPromise;
-  if (!globalThis.Tesseract) await loadScript(assets.script);
 
   let chosen = language;
   if (language === 'auto') {

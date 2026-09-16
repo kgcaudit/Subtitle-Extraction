@@ -10,7 +10,7 @@
 // 화면(app.js)을 거치지 않고 모듈을 직접 불러 쓰므로, 중간 결과(해독한 그림)
 // 까지 꺼내 볼 수 있다.
 
-import { loadScript, resolveAssets } from '../src/config.js';
+import { ensureTesseract } from '../src/config.js';
 import {
   describeTrack,
   formatName,
@@ -133,8 +133,7 @@ window.runVerify = async function runVerify({ language = 'kor+eng', scale = 2, d
 };
 
 async function start(language, images) {
-  const assets = await resolveAssets();
-  if (!globalThis.Tesseract) await loadScript(assets.script);
+  const assets = await ensureTesseract();
 
   let chosen = language;
   let decision = null;

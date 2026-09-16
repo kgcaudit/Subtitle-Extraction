@@ -14,7 +14,15 @@ npm install && npm run vendor   # 문자 인식 엔진을 vendor/ 로 복사 (�
 npm run serve                   # http://127.0.0.1:8080
 ```
 
-배포는 이 폴더를 정적 파일 그대로 올리면 끝입니다(사내 웹서버, 파일 공유, GitHub Pages 등).
+### 공개된 주소
+
+**https://kgcaudit.github.io/Subtitle-Extraction/**
+
+이 저장소에 올릴 때마다 `.github/workflows/pages.yml` 이 자동으로 다시 배포합니다.
+올릴 때 문자 인식 엔진과 언어 자료를 함께 담으므로, 공개 배포망에 기대지 않고
+사이트 혼자 돌아갑니다.
+
+직접 배포하실 때도 이 폴더를 정적 파일 그대로 올리면 끝입니다(사내 웹서버, 파일 공유 등).
 **서버에서 도는 프로그램이 없습니다.**
 
 `npm run vendor` 를 하면 인식 엔진과 언어 자료가 `vendor/` 에 들어가서 **바깥 인터넷이

@@ -28,7 +28,14 @@ export function createStaticServer() {
       response.writeHead(404).end('not found');
       return;
     }
-    response.writeHead(200, { 'Content-Type': TYPES[extname(target)] ?? 'application/octet-stream' });
+    response.writeHead(200, {
+      'Content-Type': TYPES[extname(target)] ?? 'application/octet-stream',
+      'Content-Length': statSync(target).size,
+    });
+    if (request.method === 'HEAD') {
+      response.end();
+      return;
+    }
     createReadStream(target).pipe(response);
   });
 }
