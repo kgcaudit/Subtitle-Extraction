@@ -18,10 +18,12 @@
 
   <section>
     <label class="drop" id="drop" for="file">
-      <input type="file" id="file" accept="video/*,.mkv,.webm,.mp4,.mov,.m4v,.sup,.idx,.sub" multiple hidden>
+      <!-- accept 를 걸지 않는다. 휴대폰 파일 고르기가 .idx/.sub 같은 낯선 확장자를
+           걸러 버려 아예 고를 수 없게 되는 일이 있다. 종류는 앞머리를 보고 가린다. -->
+      <input type="file" id="file" multiple hidden>
       <span class="drop-title">영상 파일을 고르거나 여기에 끌어다 놓으세요</span>
       <span class="drop-note">MKV · WebM · MP4 · MOV, 그리고 .sup / .idx+.sub 자막 파일</span>
-      <span class="drop-note">DVD 자막(.idx + .sub)은 <strong>두 파일을 함께</strong> 골라 주세요</span>
+      <span class="drop-note">DVD 자막(.idx + .sub)은 <strong>하나씩 차례로</strong> 골라도 됩니다</span>
     </label>
     <p class="status" id="status" role="status" aria-live="polite"></p>
     <div class="bar" id="bar" hidden><div class="bar-fill" id="barFill"></div></div>

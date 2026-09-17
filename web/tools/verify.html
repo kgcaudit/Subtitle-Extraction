@@ -21,7 +21,7 @@ import {
   uniqueFileName,
 } from '../src/extract.js';
 import { decodeSupFile } from '../src/pgs.js';
-import { pickSource } from '../src/source.js';
+import { classify, resolveSource } from '../src/source.js';
 import { prepareForOcr } from '../src/bitmapPrep.js';
 import { OcrPool, pickLanguage } from '../src/ocr.js';
 import { tidy } from '../src/postprocess.js';
@@ -40,7 +40,9 @@ async function toDataUrl(image) {
 
 window.runVerify = async function runVerify({ language = 'kor+eng', scale = 2, dumpCount = 0 } = {}) {
   // 화면(app.js)과 같은 규칙으로 .idx/.sub 짝을 묶는다.
-  const { file, indexText } = await pickSource(document.getElementById('file').files);
+  const source = await resolveSource(await classify(document.getElementById('file').files));
+  if (!source.ready) throw new Error(source.message ?? '고른 파일로는 읽을 수 없습니다');
+  const { file, indexText } = source;
   const started = performance.now();
 
   const probeStart = performance.now();

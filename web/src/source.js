@@ -2,10 +2,13 @@
 //
 // 대부분은 영상 파일 하나면 끝이다. 다만 DVD 자막(.idx/.sub)만은 두 파일이
 // 짝이라 둘 다 있어야 한다. .sub 에는 그림만 있고, 색과 시각 표는 .idx 에
-// 따로 있기 때문이다. 브라우저는 고르지 않은 파일에 손댈 수 없으므로,
-// 짝이 안 맞으면 무엇이 더 필요한지 알려 준다.
+// 따로 있기 때문이다.
+//
+// 휴대폰 파일 고르기는 대개 한 번에 하나만 고르게 한다. 그래서 '두 개를 한꺼번에
+// 고르라' 고 하면 폰에서는 아예 쓸 수 없다. 대신 **하나씩 받아 모은다**.
+// 먼저 온 것을 들고 있다가 짝이 오면 그때 잇는다. 순서는 상관없다.
 
-import { looksLikeIdx } from './vobsubFile.js';
+import { looksLikeIdx, looksLikeProgramStream } from './vobsubFile.js';
 
 /** .idx 는 표만 든 텍스트라 작다. 이보다 큰 파일은 .idx 인지 들여다보지 않는다. */
 const IDX_SIZE_LIMIT = 32 << 20;
@@ -13,32 +16,62 @@ const IDX_SIZE_LIMIT = 32 << 20;
 /** 앞머리만 읽어도 .idx 인지 가릴 수 있다. */
 const IDX_SNIFF_BYTES = 4096;
 
-/**
- * @param files 사용자가 고르거나 끌어다 놓은 파일들
- * @returns { file, indexText } - 고른 게 없으면 null
- * @throws .idx 만 골랐을 때처럼 짝이 안 맞는 경우
- */
-export async function pickSource(files) {
-  const list = [...files];
-  if (!list.length) return null;
+/** 앞머리 내용을 보고 .idx 인지 가린다. 확장자는 믿지 않는다. */
+async function isIdx(file) {
+  if (file.size > IDX_SIZE_LIMIT) return false;
+  try {
+    return looksLikeIdx(await file.slice(0, IDX_SNIFF_BYTES).text());
+  } catch {
+    return false;
+  }
+}
 
+/** 이 파일이 .sub(MPEG 프로그램 스트림)이라 .idx 가 있어야 하는지. */
+export async function needsIndex(file) {
+  const head = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+  return looksLikeProgramStream(head);
+}
+
+/** 고른 파일들을 '.idx' 와 '그 밖의 것' 으로 가른다. */
+export async function classify(files) {
   let indexFile = null;
-  for (const file of list) {
-    // 이름이 아니라 앞머리 내용을 보고 가린다. 확장자는 믿지 않는다.
-    if (file.size > IDX_SIZE_LIMIT) continue;
-    if (looksLikeIdx(await file.slice(0, IDX_SNIFF_BYTES).text())) {
-      indexFile = file;
-      break;
-    }
+  let mainFile = null;
+
+  for (const file of files) {
+    if (!indexFile && (await isIdx(file))) indexFile = file;
+    else mainFile ??= file;
+  }
+  return { indexFile, mainFile };
+}
+
+/**
+ * 지금까지 모인 것으로 읽을 준비가 됐는지 본다.
+ *
+ * @param held { indexFile, mainFile } - 앞서 고른 것까지 합친 것
+ * @returns { ready, file, indexText } 또는 { ready:false, waitingFor, message }
+ */
+export async function resolveSource({ indexFile, mainFile }) {
+  if (!mainFile && !indexFile) return { ready: false };
+
+  if (!mainFile) {
+    return {
+      ready: false,
+      waitingFor: 'sub',
+      message:
+        `'${indexFile.name}' 을(를) 받았습니다 — 색과 시각 표입니다. ` +
+        '이제 자막 그림이 든 **.sub 파일**을 고르면 이어서 진행합니다.',
+    };
   }
 
-  const main = list.find((file) => file !== indexFile) ?? null;
-  if (!main) {
-    throw new Error(
-      `${indexFile.name} 은(는) 색과 시각 표만 담긴 파일이라 이것만으로는 자막을 만들 수 없습니다. ` +
-        '같은 이름의 .sub 파일도 함께 골라 주세요 (둘을 한 번에 선택하거나 같이 끌어다 놓으면 됩니다).',
-    );
+  if (!indexFile && (await needsIndex(mainFile))) {
+    return {
+      ready: false,
+      waitingFor: 'idx',
+      message:
+        `'${mainFile.name}' 을(를) 받았습니다 — 자막 그림입니다. ` +
+        '색과 시각은 짝이 되는 **.idx 파일**에 들어 있습니다. 이제 그 .idx 를 고르면 이어서 진행합니다.',
+    };
   }
 
-  return { file: main, indexText: indexFile ? await indexFile.text() : null };
+  return { ready: true, file: mainFile, indexText: indexFile ? await indexFile.text() : null };
 }

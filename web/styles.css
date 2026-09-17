@@ -72,6 +72,14 @@ h2 { font-size: 1.05rem; margin: 28px 0 10px; }
 .status { margin: 12px 0 0; min-height: 1.6em; }
 .status.error { color: var(--danger); }
 
+/* 짝이 되는 파일을 더 기다리는 중 — 오류가 아니라 '다음 차례' 안내다. */
+.status.waiting {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
 .bar {
   height: 8px;
   margin-top: 8px;

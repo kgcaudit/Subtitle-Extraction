@@ -242,17 +242,66 @@ test('VobSub: .idx/.sub 짝을 화면에 넣어도 끝까지 처리된다', { ti
   });
 });
 
-test('VobSub: .idx 만 넣으면 .sub 도 필요하다고 화면에 알려 준다', { timeout: 120000 }, async (t) => {
+test('VobSub: .idx 와 .sub 을 하나씩 차례로 골라도 이어진다', { timeout: 300000 }, async (t) => {
+  if (!(await loadPlaywright()) || !vendorReady) return t.skip(skipReason);
+
+  // 휴대폰 파일 고르기는 대개 한 번에 하나만 고르게 한다. 그래서 한 번에 둘을
+  // 못 고르는 상황이 실제 사용 환경이다. 여기서는 그 경우를 그대로 재현한다.
+  await withPage(async (page, pageErrors) => {
+    // 1) 먼저 .sub 만 고른다 → 오류가 아니라 '이제 .idx 를 고르라' 는 안내여야 한다.
+    await page.setInputFiles('#file', fixture('sample.sub'));
+    await page.waitForFunction(
+      () => document.getElementById('status').classList.contains('waiting'),
+      { timeout: 30000 },
+    );
+    const waiting = await page.textContent('#status');
+    assert.match(waiting, /\.idx/, `이제 무엇을 고르면 되는지 알려 줘야 합니다: ${waiting}`);
+    assert.equal(
+      await page.evaluate(() => document.getElementById('status').classList.contains('error')),
+      false,
+      '기다리는 중은 오류가 아닙니다',
+    );
+
+    // 2) 이어서 .idx 를 고른다 → 앞서 고른 .sub 과 짝이 맞아 트랙이 나와야 한다.
+    await page.setInputFiles('#file', fixture('sample.idx'));
+    await page.waitForFunction(
+      () => document.querySelectorAll('#tracks .track').length === 1,
+      { timeout: 30000 },
+    );
+
+    await page.click('#extract');
+    await page.waitForFunction(
+      () => document.querySelectorAll('#results .result').length === 1,
+      { timeout: 300000 },
+    );
+    const produced = await page.evaluate(async () => {
+      const link = document.querySelector('#results .result a');
+      return { name: link.download, text: await (await fetch(link.href)).text() };
+    });
+
+    assert.deepEqual(pageErrors, [], '브라우저에서 오류가 났습니다');
+    assert.equal(produced.name, 'sample.ko.srt');
+    assert.match(produced.text, /-->/, 'SRT 가 만들어지지 않았습니다');
+  });
+});
+
+test('VobSub: .idx 를 먼저 골라도 이어진다', { timeout: 300000 }, async (t) => {
   if (!(await loadPlaywright())) return t.skip(skipReason);
 
+  // 순서는 상관없어야 한다.
   await withPage(async (page) => {
     await page.setInputFiles('#file', fixture('sample.idx'));
     await page.waitForFunction(
-      () => document.getElementById('status').classList.contains('error'),
+      () => document.getElementById('status').classList.contains('waiting'),
       { timeout: 30000 },
     );
-    const status = await page.textContent('#status');
-    assert.match(status, /\.sub/, `무엇이 더 필요한지 알려 줘야 합니다: ${status}`);
-    assert.equal(await page.isVisible('#trackSection'), false, '트랙 목록이 보이면 안 됩니다');
+    const waiting = await page.textContent('#status');
+    assert.match(waiting, /\.sub/, `이제 무엇을 고르면 되는지 알려 줘야 합니다: ${waiting}`);
+
+    await page.setInputFiles('#file', fixture('sample.sub'));
+    await page.waitForFunction(
+      () => document.querySelectorAll('#tracks .track').length === 1,
+      { timeout: 30000 },
+    );
   });
 });

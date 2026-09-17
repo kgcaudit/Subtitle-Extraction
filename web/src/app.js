@@ -11,7 +11,7 @@ import {
   uniqueFileName,
 } from './extract.js';
 import { decodeSupFile } from './pgs.js';
-import { pickSource } from './source.js';
+import { classify, resolveSource } from './source.js';
 import { prepareForOcr } from './bitmapPrep.js';
 import { OcrPool, pickLanguage } from './ocr.js';
 import { tidy } from './postprocess.js';
@@ -43,6 +43,8 @@ function ocrSettings() {
 const state = {
   file: null,
   indexText: null,
+  // DVD 자막(.idx/.sub)은 하나씩 와도 되도록, 먼저 온 것을 들고 있는다.
+  held: { indexFile: null, mainFile: null },
   tracks: [],
   container: null,
   context: {},
@@ -59,6 +61,18 @@ let assetsPromise = null;
 function say(message, isError = false) {
   ui.status.textContent = message;
   ui.status.classList.toggle('error', isError);
+  ui.status.classList.remove('waiting');
+}
+
+/** 짝이 되는 파일을 더 기다리는 중. 오류가 아니라 '다음 차례' 안내다. */
+function sayWaiting(message) {
+  ui.status.replaceChildren();
+  // **굵게** 표시한 부분만 강조한다.
+  message.split(/\*\*(.+?)\*\*/g).forEach((part, index) => {
+    ui.status.append(index % 2 ? Object.assign(document.createElement('strong'), { textContent: part }) : part);
+  });
+  ui.status.classList.remove('error');
+  ui.status.classList.add('waiting');
 }
 
 function showProgress(ratio) {
@@ -166,23 +180,35 @@ function clearResults() {
 // --- 동작 -----------------------------------------------------------------
 
 async function openFiles(files) {
-  clearResults();
-  ui.trackSection.hidden = true;
   setBusy(true);
+  let handedOver = false;
 
-  let source;
   try {
-    source = await pickSource(files);
+    const picked = await classify(files);
+
+    // 새로 고른 것을 앞서 고른 것 위에 얹는다. 같은 자리면 새것이 이긴다.
+    if (picked.indexFile) state.held.indexFile = picked.indexFile;
+    if (picked.mainFile) state.held.mainFile = picked.mainFile;
+
+    const source = await resolveSource(state.held);
+    if (!source.ready) {
+      // 아직 짝이 덜 왔다. 들고 있으면서 무엇을 더 고르면 되는지 알려 준다.
+      clearResults();
+      ui.trackSection.hidden = true;
+      if (source.message) sayWaiting(source.message);
+      return;
+    }
+
+    state.held = { indexFile: null, mainFile: null };
+    handedOver = true;
+    await openFile(source.file, source.indexText);
   } catch (error) {
-    setBusy(false);
-    say(error.message, true);
-    return;
+    say(`파일을 읽지 못했습니다: ${error.message}`, true);
+  } finally {
+    // openFile 로 넘겼으면 그쪽이 스스로 푼다. 아니면 여기서 풀어야
+    // 기다리는 동안에도 다음 파일을 고를 수 있다.
+    if (!handedOver) setBusy(false);
   }
-  if (!source) {
-    setBusy(false);
-    return;
-  }
-  await openFile(source.file, source.indexText);
 }
 
 async function openFile(file, indexText = null) {
@@ -333,8 +359,10 @@ async function recognizeCues(cues, prepared, pool, label) {
 // --- 붙이기 ---------------------------------------------------------------
 
 ui.file.addEventListener('change', () => {
-  const files = ui.file.files;
-  if (files?.length) openFiles(files);
+  const files = [...(ui.file.files ?? [])];
+  // 값을 비워 둬야 같은 파일을 다시 골라도 change 가 난다.
+  ui.file.value = '';
+  if (files.length) openFiles(files);
 });
 
 ui.extract.addEventListener('click', extractSelected);
@@ -350,8 +378,8 @@ for (const type of ['dragleave', 'drop']) {
 }
 ui.drop.addEventListener('drop', (event) => {
   event.preventDefault();
-  const files = event.dataTransfer?.files;
-  if (files?.length && !state.busy) openFiles(files);
+  const files = [...(event.dataTransfer?.files ?? [])];
+  if (files.length && !state.busy) openFiles(files);
 });
 
 setBusy(false);
