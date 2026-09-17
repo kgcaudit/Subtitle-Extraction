@@ -10,7 +10,14 @@
 /** 반전 결과가 이 밝기보다 어두우면 원본이 '어두운 글자 + 밝은 박스'였다고 본다. */
 const DARK_RESULT_THRESHOLD = 110;
 
-export function prepareForOcr(image, { scale = 2, margin = 16 } = {}) {
+/** 재 볼 기울기 후보. 0(똑바름) ~ 0.4(많이 기울어짐). */
+const SLANT_STEP = 0.025;
+const SLANT_LIMIT = 0.4;
+
+/** 기울기는 대충만 봐도 되므로 이 높이로 줄여서 잰다. 그만큼 빨라진다. */
+const SLANT_PROBE_HEIGHT = 48;
+
+export function prepareForOcr(image, { scale = 2, margin = 16, straighten = true } = {}) {
   const { width, height, data } = image;
   if (!width || !height) return null;
 
@@ -34,11 +41,15 @@ export function prepareForOcr(image, { scale = 2, margin = 16 } = {}) {
     for (let i = 0; i < gray.length; i += 1) gray[i] = 255 - gray[i];
   }
 
-  const scaled = scale > 1 ? resize(gray, width, height, width * scale, height * scale) : {
+  // 기울기는 작은 그림에서 재고(빠르다), 되돌리기는 키운 뒤에 한다(덜 뭉갠다).
+  const slant = straighten ? estimateSlant(gray, width, height) : 0;
+
+  const enlarged = scale > 1 ? resize(gray, width, height, width * scale, height * scale) : {
     data: gray,
     width,
     height,
   };
+  const scaled = deslant(enlarged, slant);
 
   // 인식기는 글자가 가장자리에 붙어 있으면 잘 못 읽는다. 흰 여백을 둘러 준다.
   const outWidth = scaled.width + margin * 2;
@@ -81,4 +92,75 @@ function resize(source, width, height, targetWidth, targetHeight) {
     }
   }
   return { data: out, width: targetWidth, height: targetHeight };
+}
+
+/**
+ * 글자가 얼마나 기울었는지 잰다. 안 기울었으면 0.
+ *
+ * 바로 선 글자는 세로획이 같은 열에 모인다. 그래서 열마다 잉크량을 재면
+ * 획이 있는 열과 없는 열의 차이가 커진다. 여러 기울기로 되돌려 보고
+ * 그 차이가 가장 큰 것을 고른다.
+ *
+ * 재는 데는 작은 그림이면 충분하다. 가로·세로를 같은 비율로 줄여야
+ * 기울기 값이 그대로 유지된다.
+ */
+export function estimateSlant(gray, width, height) {
+  let probe = { data: gray, width, height };
+  if (height > SLANT_PROBE_HEIGHT) {
+    const shrink = SLANT_PROBE_HEIGHT / height;
+    probe = resize(gray, width, height, Math.max(1, Math.round(width * shrink)), SLANT_PROBE_HEIGHT);
+  }
+
+  let bestSlant = 0;
+  let bestScore = -1;
+  const steps = Math.round(SLANT_LIMIT / SLANT_STEP);
+
+  for (let step = 0; step <= steps; step += 1) {
+    const slant = step * SLANT_STEP;
+    const columns = new Float64Array(probe.width + Math.ceil(slant * probe.height) + 2);
+
+    // 잉크(255 - 밝기)를 기울인 만큼 옆으로 밀어 가며 열별로 모은다.
+    for (let y = 0; y < probe.height; y += 1) {
+      const shift = Math.round(slant * y);
+      const row = y * probe.width;
+      for (let x = 0; x < probe.width; x += 1) columns[x + shift] += 255 - probe.data[row + x];
+    }
+
+    let score = 0;
+    for (let x = 0; x + 1 < columns.length; x += 1) {
+      const difference = columns[x + 1] - columns[x];
+      score += difference * difference;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestSlant = slant;
+    }
+  }
+  return bestSlant;
+}
+
+/**
+ * 기울어진 글자를 바로 세운다. 아래는 그대로 두고 위를 왼쪽으로 민다.
+ * 캔버스를 기운 만큼 넓혀 자리를 맞추므로 왼쪽 위 획이 잘리지 않는다.
+ */
+export function deslant(image, slant) {
+  if (slant <= 0) return image;
+  const { data, width, height } = image;
+  const outWidth = width + Math.ceil(slant * height) + 2;
+  const out = new Uint8ClampedArray(outWidth * height).fill(255);
+
+  for (let y = 0; y < height; y += 1) {
+    const shift = slant * y;
+    const row = y * width;
+    const outRow = y * outWidth;
+    for (let x = 0; x < outWidth; x += 1) {
+      const sourceX = x - shift;
+      if (sourceX < 0 || sourceX > width - 1) continue;   // 바깥은 흰 바탕 그대로
+      const x0 = Math.floor(sourceX);
+      const x1 = Math.min(width - 1, x0 + 1);
+      const weight = sourceX - x0;
+      out[outRow + x] = data[row + x0] * (1 - weight) + data[row + x1] * weight;
+    }
+  }
+  return { data: out, width: outWidth, height };
 }

@@ -267,3 +267,60 @@ test('VobSub: 언어가 여러 개면 그 언어의 자막만 골라 이어 붙�
     '앞 2바이트에 적힌 길이(8)만큼, 남의 언어는 빼고 이어 붙여야 합니다',
   );
 });
+
+/** 기울어진 글자 그림을 만든다. 아래를 기준으로 위를 오른쪽으로 민 세로획들. */
+function slantedStrokes(slant) {
+  const width = 120;
+  const height = 40;
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (const base of [20, 50, 80]) {
+      const x = Math.round(base + slant * (height - 1 - y));
+      for (const dx of [0, 1, 2]) {
+        const at = ((y * width) + x + dx) * 4;
+        data[at] = data[at + 1] = data[at + 2] = 255;   // 흰 글자
+        data[at + 3] = 255;
+      }
+    }
+  }
+  return { width, height, data };
+}
+
+test('기울기 재기: 똑바른 글자는 0, 기울어진 글자는 그만큼', async () => {
+  const { estimateSlant } = await import('../src/bitmapPrep.js');
+
+  // prepareForOcr 안에서 재는 것과 같은 모양(흰 바탕에 검은 글자)으로 만든다.
+  const grayOf = (image) => {
+    const gray = new Uint8ClampedArray(image.width * image.height);
+    for (let i = 0; i < gray.length; i += 1) gray[i] = 255 - image.data[i * 4 + 3];
+    return gray;
+  };
+
+  for (const slant of [0, 0.15, 0.3]) {
+    const image = slantedStrokes(slant);
+    const found = estimateSlant(grayOf(image), image.width, image.height);
+    assert.ok(
+      Math.abs(found - slant) <= 0.05,
+      `기울기 ${slant} 인 글자를 ${found} 로 쟀습니다`,
+    );
+  }
+});
+
+test('기울기 되돌리기: 되돌린 뒤에는 기울기가 0으로 잡힌다', async () => {
+  const { estimateSlant, deslant } = await import('../src/bitmapPrep.js');
+  const image = slantedStrokes(0.3);
+  const gray = new Uint8ClampedArray(image.width * image.height);
+  for (let i = 0; i < gray.length; i += 1) gray[i] = 255 - image.data[i * 4 + 3];
+
+  const straightened = deslant({ data: gray, width: image.width, height: image.height }, 0.3);
+  assert.ok(straightened.width > image.width, '잘리지 않게 폭이 넓어져야 합니다');
+
+  const left = estimateSlant(straightened.data, straightened.width, straightened.height);
+  assert.ok(left <= 0.05, `되돌린 뒤에도 기울기가 ${left} 남아 있습니다`);
+});
+
+test('기울기 되돌리기: 똑바른 그림은 손대지 않는다', async () => {
+  const { deslant } = await import('../src/bitmapPrep.js');
+  const image = { data: new Uint8ClampedArray(9).fill(128), width: 3, height: 3 };
+  assert.equal(deslant(image, 0), image, '기울기가 0이면 그대로 돌려줘야 합니다');
+});
