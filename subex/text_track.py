@@ -15,11 +15,16 @@ def extract_text_track(source, track, workdir: Path) -> list[Cue]:
 
     바로 최종 파일로 쓰지 않고 한 번 파싱하는 이유는, 이미지 자막 경로와
     똑같은 후처리·인코딩 선택을 거치게 하기 위해서다.
+
+    -copyts 로 시각을 그대로 꺼낸다. 이게 없으면 ffmpeg 이 출력을 0 에서
+    시작시키려고 **모든 스트림 중 가장 이른 것** 에 맞춰 전체를 미는데, AAC 소리의
+    준비 구간(-0.023초) 때문에 자막이 통째로 23밀리초 늦어진다. 화면 기준으로
+    다시 맞추는 일은 extract.py 가 한다.
     """
     target = workdir / f"track{track.index}.srt"
     try:
         run([
-            "ffmpeg", "-v", "error", "-y",
+            "ffmpeg", "-v", "error", "-y", "-copyts",
             "-i", str(source),
             "-map", f"0:{track.index}",
             "-c:s", "srt",

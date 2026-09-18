@@ -10,7 +10,7 @@ from subex.ffmpeg import run
 from subex.ocr import TesseractEngine, pick_language, recognize_many
 from subex.pgs import parse_sup
 from subex.postprocess import tidy
-from subex.probe import SubtitleTrack
+from subex.probe import SubtitleTrack, presentation_offset_ms
 from subex.srt import Cue
 from subex.text_track import extract_text_track
 from subex.vobsub import parse_vobsub
@@ -54,9 +54,11 @@ def _read_bitmap_cues(source: Path, track: SubtitleTrack, workdir: Path) -> list
         if _is_raw_sup(source):
             return parse_sup(source)
 
+        # -copyts: 시각을 건드리지 말고 그대로 꺼내라. 기준 맞추기는 우리가 한다
+        # (아래 _presentation_offset 참고).
         target = workdir / f"track{track.index}.sup"
         run([
-            "ffmpeg", "-v", "error", "-y",
+            "ffmpeg", "-v", "error", "-y", "-copyts",
             "-i", str(source), "-map", f"0:{track.index}", "-c:s", "copy", str(target),
         ])
         return parse_sup(target)
@@ -67,18 +69,52 @@ def _read_bitmap_cues(source: Path, track: SubtitleTrack, workdir: Path) -> list
     raise ValueError(f"이 프로젝트가 비트맵을 복원할 수 없는 코덱입니다: {track.codec}")
 
 
+def _is_standalone_subtitle(source: Path) -> bool:
+    """자막만 든 파일인가(.sup, .idx). 이런 파일은 시각이 이미 제 값이다."""
+    return _is_raw_sup(source) or source.suffix.lower() == ".idx"
+
+
+def _presentation_offset(source: Path) -> int:
+    """이 파일에서 '재생 0초' 에 해당하는 시각(밀리초).
+
+    자막이 화면과 맞으려면 영상이 시작하는 시각을 0 으로 잡아야 한다. 자세한
+    내용은 subex.probe.presentation_offset_ms 참고.
+
+    자막만 든 파일(.sup, .idx)은 그 자체가 이미 영화 시간축 위에 있으므로
+    건드리지 않는다 — 여기서 빼 버리면 블루레이 자막이 53초 앞당겨진다.
+    """
+    if _is_standalone_subtitle(source):
+        return 0
+    return presentation_offset_ms(source)
+
+
+def _shift(cues: list[Cue], offset: int) -> list[Cue]:
+    if not offset:
+        return cues
+    for cue in cues:
+        cue.start -= offset
+        cue.end -= offset
+    return cues
+
+
 def extract_track(source, track: SubtitleTrack, workdir: Path,
                   options: ExtractOptions | None = None) -> list[Cue]:
     options = options or ExtractOptions()
     source = Path(source)
 
+    offset = _presentation_offset(source)
+
     if not track.is_bitmap:
-        cues = extract_text_track(source, track, workdir)
+        cues = _shift(extract_text_track(source, track, workdir), offset)
         return tidy(cues, strip_styling=options.strip_styling)
 
     bitmap_cues = _read_bitmap_cues(source, track, workdir)
     if not bitmap_cues:
         return []
+    if offset:
+        for cue in bitmap_cues:
+            cue.start -= offset
+            cue.end -= offset
 
     _notify(options, "prepare", 0, len(bitmap_cues))
     # 자막 한 덩이가 여러 줄일 수 있다. 줄마다 따로 인식하므로 한 줄로 펴서 넘기고
