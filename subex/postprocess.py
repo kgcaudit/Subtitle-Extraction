@@ -14,6 +14,11 @@ _ASS_NEWLINE = re.compile(r"\\[Nnh]")
 #: OCR 이 자주 흘리는 제어문자 / 특수 공백.
 _JUNK = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f​﻿]")
 
+#: 줄 첫머리의 대화 표시(-) 와 말 사이에 인식기가 띄어쓰기를 흘리는 일이 있다.
+#: 실측: '-' 로 시작하는 185줄 중 15줄. 그림에는 띄어쓰기가 있으니 되살린다.
+#: 숫자 앞(-5도)은 음수일 수 있으므로 글자 앞에서만 한다.
+_DIALOGUE_DASH = re.compile(r"^([-\u2013\u2014])(?=[^\s\d])")
+
 
 def clean_text(text: str, strip_styling: bool = True) -> str:
     if strip_styling:
@@ -25,7 +30,7 @@ def clean_text(text: str, strip_styling: bool = True) -> str:
     for line in text.splitlines():
         line = re.sub(r"[ \t]+", " ", line).strip()
         if line:
-            lines.append(line)
+            lines.append(_DIALOGUE_DASH.sub(r"\1 ", line))
     return "\n".join(lines)
 
 

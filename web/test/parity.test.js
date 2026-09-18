@@ -50,3 +50,22 @@ test('파이썬판과 결과가 같다', () => {
     assert.equal(actual, testCase.expected, `[${testCase.name}] ${testCase.note}`);
   }
 });
+
+test('대화 표시(-) 뒤 띄어쓰기를 되살리는 규칙이 파이썬판과 같다', async () => {
+  const { cleanText } = await import('../src/postprocess.js');
+
+  // 인식기가 가끔 흘린다(실측: '-' 로 시작하는 185줄 중 15줄).
+  // 그림에는 띄어쓰기가 있으니 되살리는 것이 맞다. 음수는 건드리지 않는다.
+  const cases = [
+    ['-응', '- 응'],
+    ['-네\n- 그래', '- 네\n- 그래'],
+    ['—네', '— 네'],
+    ['- 응', '- 응'],
+    ['-5도 아래', '-5도 아래'],
+    ['-', '-'],
+    ['그-응', '그-응'],
+  ];
+  for (const [source, expected] of cases) {
+    assert.equal(cleanText(source), expected, `${JSON.stringify(source)} 처리 결과`);
+  }
+});

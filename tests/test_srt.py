@@ -49,3 +49,20 @@ def test_parse_keeps_text_ending_with_digits():
         "3\n00:00:05,000 --> 00:00:06,000\n끝\n"
     )
     assert [cue.text for cue in parse_srt(source)] == ["Mixed 한글 and English 2026", "2026", "끝"]
+
+
+def test_dialogue_dash_gets_its_space_back():
+    """줄 첫머리의 대화 표시(-) 뒤 띄어쓰기를 되살린다.
+
+    인식기가 가끔 흘린다(실측: '-' 로 시작하는 185줄 중 15줄). 그림에는
+    띄어쓰기가 있으니 되살리는 것이 맞다. 다만 음수(-5도)는 건드리지 않는다.
+    """
+    from subex.postprocess import clean_text
+
+    assert clean_text("-응") == "- 응"
+    assert clean_text("-네\n- 그래") == "- 네\n- 그래"
+    assert clean_text("—네") == "— 네"
+    assert clean_text("- 응") == "- 응", "이미 띄어져 있으면 그대로"
+    assert clean_text("-5도 아래") == "-5도 아래", "음수는 건드리지 않는다"
+    assert clean_text("-") == "-", "대시만 있으면 그대로"
+    assert clean_text("그-응") == "그-응", "줄 첫머리가 아니면 건드리지 않는다"
