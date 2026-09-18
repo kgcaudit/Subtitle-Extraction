@@ -68,7 +68,8 @@ subex movie.mkv --list               # 어떤 자막이 들어 있는지만 확�
 subex movie.mkv -t 1 -o korean.srt   # 1번 트랙만 지정한 이름으로
 subex *.mkv --lang kor               # 여러 파일에서 한국어 트랙만
 subex movie.mkv --encoding cp949     # 구형 플레이어용 인코딩
-subex bluray.sup --ocr-lang kor      # .sup 파일을 바로
+subex bluray.sup                     # 블루레이 .sup 파일을 바로
+subex movie.mkv --ocr-lang kor       # 인식 언어를 직접 지정 (기본은 자동)
 ```
 
 기본 출력 이름은 `<영상이름>.<언어>.srt` 이고, 강제자막·청각장애인용 트랙은
@@ -83,7 +84,7 @@ subex bluray.sup --ocr-lang kor      # .sup 파일을 바로
 | `--lang CODE` | 해당 언어 트랙만 (`kor`, `eng` …) |
 | `-o, --output FILE` | 출력 파일 (트랙 하나일 때) |
 | `--outdir DIR` | 출력 폴더 |
-| `--ocr-lang LANGS` | OCR 언어. 기본 `kor+eng` |
+| `--ocr-lang LANGS` | OCR 언어. 기본 `auto` — 앞부분 12장을 살펴보고 `kor` 과 `kor+eng` 중에서 고른다. `kor`, `kor+eng`, `eng` … 로 직접 줄 수도 있다 |
 | `--psm N` | Tesseract 페이지 분할 모드. 기본 `7` (자막을 줄마다 따로 넣으므로 '한 줄') |
 | `--line-height N` | OCR 에 넣을 글자 한 줄 높이. 기본 `28` (큰 글자만 줄이고 키우지는 않는다). `0` 이면 원본 크기 그대로 |
 | `-j, --jobs N` | OCR 동시 실행 개수. 기본은 CPU 수 |
@@ -131,6 +132,7 @@ subex bluray.sup --ocr-lang kor      # .sup 파일을 바로
 | 음표(♪) 찾기 | 인식기 글자 목록에 ♪ 가 아예 없어 **글자로는 절대 못 얻습니다** |
 | 크기 맞추기 | 크게 넣을수록 나빠집니다. 특히 ㅈ 을 ㅅ 으로 읽는 실수 (14개 → 0개) |
 | 대시 띄어쓰기 | 자막마다 관습이 달라, 트랙 전체를 보고 그 자막을 따릅니다 |
+| 인식 언어 고르기 | 한글 전용을 '한국어+영어'로 읽으면 멀쩡한 한글이 뭉개집니다 (실측: 한글 없는 줄 36개 → 3개) |
 
 자세한 근거와 실측값은 [`web/README.md`](web/README.md) 에 정리해 두었습니다.
 전처리는 파이썬판과 브라우저판이 같은 규칙을 씁니다.
@@ -179,7 +181,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-테스트는 45개이고, ffmpeg/tesseract 가 없으면 해당 항목만 자동으로 건너뜁니다.
+테스트는 53개이고, ffmpeg/tesseract 가 없으면 해당 항목만 자동으로 건너뜁니다.
 
 ffmpeg 는 **텍스트 자막을 이미지 자막으로 인코딩하지 못하기 때문에**(dvdsub 인코더는
 bitmap→bitmap 만 받습니다) PGS·VobSub 테스트 자료는 `tests/pgs_writer.py`,

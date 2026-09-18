@@ -36,8 +36,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-t", "--track", type=int, action="append", metavar="N",
                         help="추출할 자막 트랙 번호(--list 의 # 값). 여러 번 쓸 수 있다")
     parser.add_argument("--lang", metavar="CODE", help="이 언어의 트랙만 추출 (예: kor, eng)")
-    parser.add_argument("--ocr-lang", default="kor+eng", metavar="LANGS",
-                        help="이미지 자막 OCR 언어 (기본: kor+eng)")
+    parser.add_argument("--ocr-lang", default="auto", metavar="LANGS",
+                        help="이미지 자막 OCR 언어 (기본: auto — 앞부분을 살펴보고 "
+                             "'kor' 과 'kor+eng' 중에서 고른다). 직접 주려면 kor, kor+eng, eng ...")
     parser.add_argument("--psm", type=int, default=7, metavar="N",
                         help="Tesseract 페이지 분할 모드 (기본: 7 — 자막을 줄마다 따로 넣으므로 '한 줄')")
     parser.add_argument("--line-height", type=int, default=28, metavar="N",
@@ -92,7 +93,8 @@ class _Progress:
         self.last = now
         # OCR 은 자막 덩이가 아니라 글자 줄 단위로 센다. 끝에 찍히는 "N줄"
         # (자막 수)과 헷갈리지 않도록 무엇을 세는지 붙여 준다.
-        label = {"prepare": "이미지 준비", "ocr": "OCR(글자 줄)"}.get(stage, stage)
+        label = {"prepare": "이미지 준비", "ocr": "OCR(글자 줄)",
+                 "language": "인식 언어 고르기"}.get(stage, stage)
         print(f"\r    {label} {done}/{total} ({done * 100 // total}%)", end="", file=sys.stderr)
         if done >= total:
             print(file=sys.stderr)
@@ -162,6 +164,9 @@ def _process_file(source: Path, args, used: set[Path]) -> tuple[int, int]:
         strip_styling=not args.keep_styling,
         line_height=args.line_height,
         on_progress=_Progress(args.quiet),
+        on_language=lambda choice: say(
+            f"    인식 언어 : {choice.language} (자동 선택 — {choice.describe()})"
+        ),
     )
 
     ok = failed = 0

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from subex.bitmap import BitmapCue, measure_line_height, prepare_lines
 from subex.ffmpeg import run
-from subex.ocr import TesseractEngine, recognize_many
+from subex.ocr import TesseractEngine, pick_language, recognize_many
 from subex.pgs import parse_sup
 from subex.postprocess import tidy
 from subex.probe import SubtitleTrack
@@ -20,12 +20,14 @@ __all__ = ["ExtractOptions", "extract_track"]
 
 @dataclass
 class ExtractOptions:
-    ocr_language: str = "kor+eng"
+    #: "auto" 를 주면 앞부분을 살펴보고 'kor' 과 'kor+eng' 중에서 고른다.
+    ocr_language: str = "auto"
     psm: int = 7
     jobs: int | None = None
     strip_styling: bool = True
     line_height: int = 28
     on_progress: object = None       # callable(stage: str, done: int, total: int)
+    on_language: object = None       # callable(choice: LanguageChoice)
 
 
 def _notify(options: ExtractOptions, stage: str, done: int, total: int) -> None:
@@ -95,7 +97,16 @@ def extract_track(source, track: SubtitleTrack, workdir: Path,
     flat = [line.image for group in groups for line in group]
     _notify(options, "prepare", len(bitmap_cues), len(bitmap_cues))
 
-    engine = TesseractEngine(language=options.ocr_language, psm=options.psm)
+    language = options.ocr_language
+    if language == "auto":
+        _notify(options, "language", 0, 1)
+        choice = pick_language(flat, psm=options.psm, jobs=options.jobs)
+        language = choice.language
+        if options.on_language:
+            options.on_language(choice)
+        _notify(options, "language", 1, 1)
+
+    engine = TesseractEngine(language=language, psm=options.psm)
     recognized = recognize_many(
         flat, engine, jobs=options.jobs,
         progress=lambda done, total: _notify(options, "ocr", done, total),
