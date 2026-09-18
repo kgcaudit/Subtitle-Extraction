@@ -64,3 +64,65 @@ def test_pick_language_falls_back_when_there_is_nothing_to_look_at():
 def test_language_choice_explains_itself(choice, expected):
     """왜 그 언어를 골랐는지 사람이 읽을 수 있어야 한다."""
     assert expected in choice.describe()
+
+
+def test_recognize_many_retries_only_the_blank_results():
+    """빈 결과만 '한 낱말' 모드로 한 번 더 넣는다. 나머지는 손대지 않는다.
+
+    '한 줄'(7) 모드는 줄을 아예 못 찾으면 아무것도 내놓지 않는다. 글자 두세
+    개짜리 짧은 줄에서 그런 일이 생기고, 그러면 자막이 빈 채로 걸러져 통째로
+    사라진다. 실측으로 블루레이 자막에서 `잠깐...` 한 줄이 그렇게 없어졌다.
+    """
+    from subex.ocr import RETRY_PAGE_SEG_MODE, recognize_many
+
+    class FakeEngine:
+        """첫 번째 그림만 '한 낱말' 모드에서 글자를 내는 인식기."""
+
+        def __init__(self):
+            self.calls = []
+
+        def recognize(self, image, psm=None):
+            self.calls.append((image, psm))
+            if image == "짧은 줄":
+                return "잠깐..." if psm == RETRY_PAGE_SEG_MODE else ""
+            if image == "빈 그림":
+                return ""
+            return f"읽음:{image}"
+
+    engine = FakeEngine()
+    result = recognize_many(["짧은 줄", "보통 줄", "빈 그림"], engine, jobs=1)
+
+    assert result == ["잠깐...", "읽음:보통 줄", ""], "빈 줄만 되살아나야 한다"
+
+    # 첫 판은 셋 다 기본 모드로, 재시도는 빈 결과 둘만.
+    first = [image for image, psm in engine.calls if psm is None]
+    again = [image for image, psm in engine.calls if psm == RETRY_PAGE_SEG_MODE]
+    assert first == ["짧은 줄", "보통 줄", "빈 그림"]
+    assert again == ["짧은 줄", "빈 그림"], "글자를 낸 줄은 다시 읽지 않는다"
+
+
+def test_recognize_many_skips_the_retry_when_nothing_is_blank():
+    """빈 결과가 없으면 재시도 자체를 하지 않는다 — 공짜가 아니기 때문이다."""
+    from subex.ocr import recognize_many
+
+    class FakeEngine:
+        def __init__(self):
+            self.calls = 0
+
+        def recognize(self, image, psm=None):
+            self.calls += 1
+            return f"읽음:{image}"
+
+    engine = FakeEngine()
+    assert recognize_many(["가", "나"], engine, jobs=1) == ["읽음:가", "읽음:나"]
+    assert engine.calls == 2, "두 번만 불려야 한다"
+
+
+def test_blank_positions_matches_the_web_rule():
+    """다시 읽을 자리를 고르는 규칙. web/test/bitmap.test.js 와 값까지 같다."""
+    from subex.ocr import blank_positions
+
+    assert blank_positions(["잠깐", "", "왔어", ""]) == [1, 3]
+    assert blank_positions(["가", "나"]) == [], "빈 것이 없으면 다시 읽지 않는다"
+    assert blank_positions([]) == []
+    assert blank_positions(["", "", ""]) == [0, 1, 2]

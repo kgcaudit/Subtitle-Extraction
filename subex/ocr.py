@@ -17,6 +17,7 @@ from subex.ffmpeg import ToolMissing, require, run
 __all__ = [
     "TesseractEngine", "LanguageChoice", "available_languages",
     "decide_language", "pick_language", "recognize_many",
+    "RETRY_PAGE_SEG_MODE", "blank_positions",
 ]
 
 #: 아무것도 정하지 않았을 때의 인식 언어.
@@ -42,6 +43,27 @@ LATIN_IS_REAL_SHARE = 0.2
 
 #: 한글이 한 자도 없고 로마자가 든 낱말.
 _LATIN_WORD = re.compile(r"^[^\uAC00-\uD7A3]*[A-Za-z][^\uAC00-\uD7A3]*$")
+
+#: 빈 결과가 나왔을 때 한 번 더 시도할 페이지 분할 모드 — '한 낱말'.
+#:
+#: '한 줄'(7)은 줄을 아예 못 찾으면 아무것도 내놓지 않는다. 글자 두세 개짜리
+#: 짧은 줄에서 그런 일이 생기고, 그러면 자막이 빈 채로 걸러져 **통째로 사라진다.**
+#: 실측으로 블루레이 자막에서 `잠깐...` 한 줄이 그렇게 없어졌는데, 브라우저판은
+#: 같은 그림을 제대로 읽어서 자막 수가 1,593 대 1,592 로 갈렸다.
+#:
+#: 빈 결과일 때만 발동하므로 없던 글자를 만들지는 않는다. 다만 아무 글자도 없는
+#: 그림에 억지로 글자를 붙이지 않도록, 다시 읽은 결과도 빈 값이면 그대로 둔다.
+#: 실측: 자막 세 편 7,084줄 중 발동 3줄.
+RETRY_PAGE_SEG_MODE = 8
+
+
+def blank_positions(texts) -> list[int]:
+    """다시 읽어야 할 자리를 고른다. 인식기 없이도 시험할 수 있게 따로 두었다.
+
+    빈 결과만 고르므로 이미 글자를 낸 줄은 건드리지 않는다.
+    웹판(blankPositions)과 같은 규칙이다.
+    """
+    return [position for position, text in enumerate(texts) if not text]
 
 
 def available_languages(binary: str = "tesseract") -> set[str]:
@@ -72,7 +94,7 @@ class TesseractEngine:
                 f"macOS: brew install tesseract-lang"
             )
 
-    def recognize(self, image: Image.Image) -> str:
+    def recognize(self, image: Image.Image, psm: int | None = None) -> str:
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
         # Tesseract 는 OpenMP 로 코어 수만큼 스레드를 띄운다. 우리가 프로세스를
@@ -81,7 +103,7 @@ class TesseractEngine:
         proc = subprocess.run(
             [
                 self.binary, "stdin", "stdout",
-                "--psm", str(self.psm),
+                "--psm", str(self.psm if psm is None else psm),
                 "-l", self.language,
                 "--dpi", "300",
                 "-c", "preserve_interword_spaces=1",
@@ -222,4 +244,15 @@ def recognize_many(images, engine, jobs: int | None = None, progress=None) -> li
             done += 1
             if progress:
                 progress(done, len(images))
+
+        # 빈 결과만 '한 낱말' 모드로 한 번 더. 몇 줄뿐이라 진행 표시는 건드리지 않는다.
+        blank = blank_positions(results)
+        if blank:
+            retried = pool.map(
+                lambda position: engine.recognize(images[position], psm=RETRY_PAGE_SEG_MODE),
+                blank,
+            )
+            for position, text in zip(blank, retried):
+                if text:
+                    results[position] = text
     return results

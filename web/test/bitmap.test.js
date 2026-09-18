@@ -229,6 +229,20 @@ test('인식 언어 고르기: 실측한 세 경우를 그대로 가른다', asy
   );
 });
 
+test('다시 읽을 자리를 고르는 규칙이 파이썬판과 같다', async () => {
+  // '한 줄'(7) 모드는 줄을 아예 못 찾으면 아무것도 내놓지 않는다. 글자 두세
+  // 개짜리 짧은 줄에서 그런 일이 생기고, 그러면 자막이 빈 채로 걸러져 통째로
+  // 사라진다. 실측으로 블루레이 자막의 `잠깐...` 한 줄이 파이썬판에서 그렇게
+  // 없어져 자막 수가 1,593 대 1,592 로 갈렸다. 그래서 빈 결과만 '한 낱말'(8)
+  // 모드로 한 번 더 읽는다 — 이미 글자를 낸 줄은 건드리지 않는다.
+  const { blankPositions } = await import('../src/ocr.js');
+
+  assert.deepEqual(blankPositions(['잠깐', '', '왔어', '']), [1, 3]);
+  assert.deepEqual(blankPositions(['가', '나']), [], '빈 것이 없으면 다시 읽지 않는다');
+  assert.deepEqual(blankPositions([]), []);
+  assert.deepEqual(blankPositions(['', '', '']), [0, 1, 2]);
+});
+
 /** 시험용 MPEG 프로그램 스트림 조각을 만든다: 팩 머리 + private_stream_1 패킷. */
 function programStreamPacket(substreamId, payload) {
   const pack = [0x00, 0x00, 0x01, 0xba, 0x44, 0x00, 0x04, 0x00, 0x04, 0x01, 0x00, 0x00, 0x03, 0xf8];
