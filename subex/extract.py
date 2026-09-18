@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from subex.bitmap import BitmapCue, prepare_lines
+from subex.bitmap import BitmapCue, measure_line_height, prepare_lines
 from subex.ffmpeg import run
 from subex.ocr import TesseractEngine, recognize_many
 from subex.pgs import parse_sup
@@ -64,8 +64,15 @@ def extract_track(source, track: SubtitleTrack, workdir: Path,
     _notify(options, "prepare", 0, len(bitmap_cues))
     # 자막 한 덩이가 여러 줄일 수 있다. 줄마다 따로 인식하므로 한 줄로 펴서 넘기고
     # 결과를 다시 덩이별로 모은다.
+    # 글자 한 줄의 높이는 트랙 전체에서 한 번 잰다. 자막 하나만 보고 재면
+    # 짧은 줄에서 크게 어긋나, 한 줄이 두 조각으로 끊기거나 잘린다.
+    track_line_height = measure_line_height([cue.image for cue in bitmap_cues])
     groups = [
-        prepare_lines(cue.image, target_line_height=options.line_height or None)
+        prepare_lines(
+            cue.image,
+            line_height=track_line_height,
+            target_line_height=options.line_height or None,
+        )
         for cue in bitmap_cues
     ]
     flat = [line.image for group in groups for line in group]

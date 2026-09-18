@@ -9,7 +9,7 @@ from PIL import Image
 
 __all__ = [
     "BitmapCue", "PreparedLine", "prepare_for_ocr", "prepare_lines",
-    "estimate_slant", "deslant", "text_line_height",
+    "estimate_slant", "deslant", "text_line_height", "measure_line_height",
 ]
 
 #: 글자 한 줄이 이 높이일 때 인식기가 가장 잘 읽는다. 이보다 크면 줄여서 넣는다.
@@ -59,6 +59,19 @@ _NOTE_MATCH = 0.38
 
 #: 줄을 가를 때, 잉크가 이 정도는 있어야 글자 줄로 본다(가장 진한 줄 대비).
 _BAND_INK = 0.08
+
+#: 한 줄 안에서 끊긴 조각을 도로 붙일 때 쓰는 여유.
+#:
+#: '응' 이나 '요즘' 처럼 위아래로 쌓인 글자는 가운데가 가로로 비어 있다.
+#: 글자가 몇 자 안 되는 짧은 줄에서는 그 빈 줄을 메워 줄 다른 글자가 없어서
+#: 한 줄이 두 조각으로 끊긴다. 조각 사이 틈(12픽셀)이 줄 사이 틈(11픽셀)과
+#: 거의 같아, 틈 크기만으로는 가릴 수 없다. 그래서 '합쳐도 한 줄 높이를
+#: 넘지 않으면 같은 줄' 로 본다. 줄 높이는 트랙 전체에서 재므로 믿을 수 있다.
+_MERGE_WITHIN = 1.25
+
+#: 이보다 얇게 잡힌 띠는 글자가 잘린 것으로 보고 한 줄 크기로 넓힌다.
+#: 짧은 줄은 잉크가 적어 위아래가 문턱 아래로 깎여 나가기도 한다.
+_THIN_BAND = 0.5
 
 #: 잘라 낸 줄 위아래에 줄 높이의 이만큼을 남긴다.
 #:
@@ -254,8 +267,31 @@ def strip_leading_note(line: Image.Image) -> tuple[Image.Image, bool]:
     return (rest, True) if rest.width > 4 else (line, True)
 
 
+def measure_line_height(images, sample: int = 120) -> float:
+    """트랙 전체에서 글자 한 줄의 높이를 잰다.
+
+    자막은 한 트랙 안에서 글자 크기가 일정하므로, 여러 자막에서 재어 가운데
+    값을 쓰면 아주 안정적이다(실측: 자막 1,578개에서 중앙값 49픽셀, 사분위
+    48~49픽셀). 자막 하나만 보고 재면 짧은 줄에서 크게 어긋난다.
+
+    한 자막 안에서는 '가장 큰 띠' 를 쓴다. 조각난 띠보다 온전한 줄일 가능성이
+    높기 때문이다. 표본 몇 개면 충분하므로 전부 보지는 않는다.
+    """
+    images = list(images)
+    if not images:
+        return 0.0
+
+    step = max(1, len(images) // sample)
+    heights = []
+    for image in images[::step][:sample]:
+        prepared = prepare_for_ocr(image, target_line_height=None, margin=0)
+        heights.append(max(end - start for start, end in _ink_bands(prepared)))
+    return float(statistics.median(heights)) if heights else 0.0
+
+
 def prepare_lines(
     image: Image.Image,
+    line_height: float | None = None,
     target_line_height: int | None = _TARGET_LINE_HEIGHT,
     margin: int = 16,
     straighten: bool = True,
@@ -268,26 +304,55 @@ def prepare_lines(
     때로는 한 줄을 통째로 흘린다. 줄마다 따로 넣으면 그 일이 없어진다.
     (실측: 정답지 64줄에서 오류 21자 → 11자)
     """
-    whole = prepare_for_ocr(image, target_line_height, margin=0, straighten=straighten)
+    whole = prepare_for_ocr(image, target_line_height=None, margin=0, straighten=straighten)
 
     bands = _ink_bands(whole)
+    # 줄 높이는 트랙 전체에서 잰 값을 쓴다. 없으면 이 그림 하나로 가늠한다.
+    track = line_height or max(end - start for start, end in bands)
+
+    # 한 줄 안에서 끊긴 조각을 도로 붙인다.
+    joined = [list(bands[0])]
+    for start, end in bands[1:]:
+        if end - joined[-1][0] <= track * _MERGE_WITHIN:
+            joined[-1][1] = end
+        else:
+            joined.append([start, end])
+
     lines: list[PreparedLine] = []
-    for index, (start, end) in enumerate(bands):
+    for index, (start, end) in enumerate(joined):
+        above = joined[index - 1][1] if index > 0 else 0
+        below = joined[index + 1][0] if index + 1 < len(joined) else whole.height
+
+        # 너무 얇게 잡힌 띠는 글자가 잘린 것이다. 한 줄 크기로 넓힌다.
+        if end - start < track * _THIN_BAND:
+            centre = (start + end) / 2
+            start = max(above, centre - track / 2)
+            end = min(below, centre + track / 2)
+
         pad = max(2, round((end - start) * _BAND_PAD))
         # 옆 줄까지 넘어가지 않도록, 이웃과의 틈의 절반을 넘지 않게 한다.
         if index > 0:
-            pad = min(pad, max(1, (start - bands[index - 1][1]) // 2))
-        if index + 1 < len(bands):
-            pad = min(pad, max(1, (bands[index + 1][0] - end) // 2))
+            pad = min(pad, max(1, int(start - above) // 2))
+        if index + 1 < len(joined):
+            pad = min(pad, max(1, int(below - end) // 2))
 
         strip = whole.crop(
-            (0, max(0, start - pad), whole.width, min(whole.height, end + pad))
+            (0, max(0, int(start - pad)), whole.width, min(whole.height, int(end + pad)))
         )
+
         prefix = ""
         if find_notes:
             strip, found = strip_leading_note(strip)
             if found:
-                prefix = "♪"
+                prefix = "\u266a"
+
+        # 글자가 너무 크면 인식기가 오히려 못 읽는다. 확실히 큰 것만 줄인다.
+        if target_line_height and track > _RESIZE_ABOVE:
+            factor = target_line_height / track
+            strip = strip.resize(
+                (max(1, round(strip.width * factor)), max(1, round(strip.height * factor))),
+                Image.LANCZOS,
+            )
 
         canvas = Image.new("L", (strip.width + margin * 2, strip.height + margin * 2), 255)
         canvas.paste(strip, (margin, margin))

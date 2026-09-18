@@ -169,3 +169,54 @@ def test_lines_are_split_and_music_note_is_recovered():
     # 그냥 글자는 음표로 보면 안 된다.
     assert prepare_lines(draw(["abc"]), straighten=False)[0].prefix == ""
     assert prepare_lines(draw(["♪ abc"]), straighten=False, find_notes=False)[0].prefix == ""
+
+
+def test_short_line_fragments_are_rejoined_using_track_line_height():
+    """가운데가 비어 조각난 짧은 줄은 트랙 공통 줄 높이로 도로 붙인다.
+
+    '응' 처럼 위아래로 쌓인 글자는 가운데가 가로로 비어 있다. 긴 줄에서는 옆
+    글자가 그 자리를 메우지만 글자 몇 자뿐인 짧은 줄에서는 그대로 끊긴다.
+    조각 사이 틈이 줄 사이 틈과 거의 같아(실측 12픽셀 대 11픽셀) 그림 하나만
+    봐서는 가릴 수 없다. 자막은 트랙 안에서 글자 크기가 일정하므로 거기서
+    잰 줄 높이를 기준으로 삼는다.
+    """
+    from PIL import Image
+
+    from subex.bitmap import measure_line_height, prepare_lines
+
+    # 잉크가 너무 많으면 전처리가 '어두운 글자 + 밝은 박스' 로 보고 색을 뒤집는다.
+    # 실제 글자처럼 듬성듬성 그린다.
+    def strokes(image: Image.Image, top: int, height: int, width: int) -> None:
+        for y in range(height):
+            for x in range(0, width, 8):
+                for d in range(2):
+                    image.putpixel((x + d, top + y), (255, 255, 255, 255))
+
+    def short_with_inner_gap(line_height: int) -> Image.Image:
+        image = Image.new("RGBA", (40, line_height), (0, 0, 0, 0))
+        piece = round(line_height * 0.36)
+        for top in (0, line_height - piece):
+            strokes(image, top, piece, 40)
+        return image
+
+    def whole_line(line_height: int, lines: int) -> Image.Image:
+        gap = 12
+        image = Image.new("RGBA", (120, lines * line_height + (lines - 1) * gap), (0, 0, 0, 0))
+        for index in range(lines):
+            strokes(image, index * (line_height + gap), line_height, 120)
+        return image
+
+    broken = short_with_inner_gap(50)
+
+    # 그림 하나만 보면 끊긴다.
+    assert len(prepare_lines(broken, target_line_height=None, straighten=False)) == 2
+    # 트랙 줄 높이를 주면 도로 붙는다.
+    rejoined = prepare_lines(broken, line_height=50, target_line_height=None, straighten=False)
+    assert len(rejoined) == 1
+    # 진짜 두 줄까지 붙이면 안 된다.
+    two = prepare_lines(whole_line(30, 2), line_height=30, target_line_height=None, straighten=False)
+    assert len(two) == 2
+
+    # 줄 높이는 여러 자막에서 재므로 조각난 그림 하나에 휘둘리지 않는다.
+    assert measure_line_height([whole_line(40, 1)] * 9 + [broken]) == 40
+    assert measure_line_height([]) == 0

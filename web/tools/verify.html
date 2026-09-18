@@ -22,7 +22,7 @@ import {
 } from '../src/extract.js';
 import { decodeSupFile } from '../src/pgs.js';
 import { classify, resolveSource } from '../src/source.js';
-import { prepareLines } from '../src/bitmapPrep.js';
+import { measureLineHeight, prepareLines } from '../src/bitmapPrep.js';
 import { OcrPool, pickLanguage } from '../src/ocr.js';
 import { tidy } from '../src/postprocess.js';
 import { render } from '../src/srt.js';
@@ -88,9 +88,10 @@ window.runVerify = async function runVerify({ language = 'kor+eng', dumpCount = 
         const images = [];
         const owners = [];
         const prefixes = [];
+        const lineHeight = measureLineHeight(cues.filter((cue) => cue.image).map((cue) => cue.image));
         cues.forEach((cue, position) => {
           if (!cue.image) return;
-          for (const line of prepareLines(cue.image)) {
+          for (const line of prepareLines(cue.image, { lineHeight })) {
             images.push(line.image);
             owners.push(position);
             prefixes.push(line.prefix);

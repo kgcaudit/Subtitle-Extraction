@@ -446,3 +446,58 @@ test('음표 찾기: 진짜 ♪ 는 찾아 떼어 내고, 글자는 건드리지
   // 꺼 두면 찾지 않는다.
   assert.equal(prepareLines(line, { straighten: false, findNotes: false })[0].prefix, '');
 });
+
+/**
+ * 가운데가 가로로 비어 조각나는 짧은 줄을 흉내 낸다.
+ *
+ * '응' 처럼 위아래로 쌓인 글자는 가운데가 가로로 비어 있다. 긴 줄에서는 옆
+ * 글자들이 그 자리를 메우지만, 글자 몇 자뿐인 짧은 줄에서는 그대로 끊긴다.
+ * 이때는 그림 하나만 봐서는 '한 줄이 끊긴 것' 인지 '두 줄' 인지 알 수 없다.
+ */
+function shortLineWithInnerGap(lineHeight) {
+  const width = 40;
+  const height = lineHeight;
+  const data = new Uint8ClampedArray(width * height * 4);
+  const piece = Math.round(lineHeight * 0.36);
+  for (const top of [0, lineHeight - piece]) {
+    for (let y = 0; y < piece; y += 1) {
+      for (let x = 0; x < width; x += 4) {
+        for (const d of [0, 1, 2]) {
+          const at = ((top + y) * width + x + d) * 4;
+          data[at] = data[at + 1] = data[at + 2] = 255;
+          data[at + 3] = 255;
+        }
+      }
+    }
+  }
+  return { width, height, data };
+}
+
+test('줄 가르기: 짧은 줄이 조각나도 트랙 줄 높이로 도로 붙인다', async () => {
+  const { prepareLines, measureLineHeight } = await import('../src/bitmapPrep.js');
+  const image = shortLineWithInnerGap(50);
+
+  // 이 그림 하나만 보면 한 줄인지 두 줄인지 알 수 없어 두 조각으로 끊긴다.
+  const alone = prepareLines(image, { straighten: false, targetLineHeight: 0 });
+  assert.equal(alone.length, 2, `혼자 보면 2조각으로 끊깁니다 (실제 ${alone.length})`);
+
+  // 트랙 전체에서 잰 줄 높이를 주면 한 줄로 도로 붙는다.
+  const joined = prepareLines(image, { straighten: false, targetLineHeight: 0, lineHeight: 50 });
+  assert.equal(joined.length, 1, `줄 높이를 주면 한 줄이어야 합니다 (실제 ${joined.length})`);
+
+  // 진짜 두 줄은 붙이면 안 된다.
+  const two = prepareLines(textLike(30, 14, 2), {
+    straighten: false, targetLineHeight: 0, lineHeight: 30,
+  });
+  assert.equal(two.length, 2, '진짜 두 줄까지 붙이면 안 됩니다');
+});
+
+test('줄 높이 재기: 여러 자막에서 재어 조각에 휘둘리지 않는다', async () => {
+  const { measureLineHeight } = await import('../src/bitmapPrep.js');
+
+  // 온전한 줄이 대부분이면, 조각난 그림이 섞여도 가운데 값은 흔들리지 않는다.
+  const whole = Array.from({ length: 9 }, () => textLike(40, 12, 1));
+  const broken = shortLineWithInnerGap(50);
+  assert.equal(measureLineHeight([...whole, broken]), 40);
+  assert.equal(measureLineHeight([]), 0);
+});

@@ -12,7 +12,7 @@ import {
 } from './extract.js';
 import { decodeSupFile } from './pgs.js';
 import { classify, resolveSource } from './source.js';
-import { prepareLines } from './bitmapPrep.js';
+import { measureLineHeight, prepareLines } from './bitmapPrep.js';
 import { OcrPool, pickLanguage } from './ocr.js';
 import { tidy } from './postprocess.js';
 import { render } from './srt.js';
@@ -335,7 +335,10 @@ async function startOcr(language, images) {
  * 넘기고 어느 자막의 몇 번째 줄인지를 함께 기억해 둔다.
  */
 function prepareImages(cues, targetLineHeight) {
-  const options = targetLineHeight === undefined ? {} : { targetLineHeight };
+  // 글자 한 줄의 높이는 트랙 전체에서 한 번 잰다. 자막 하나만 보고 재면
+  // 짧은 줄에서 크게 어긋나, 한 줄이 두 조각으로 끊기거나 잘린다.
+  const lineHeight = measureLineHeight(cues.filter((cue) => cue.image).map((cue) => cue.image));
+  const options = { lineHeight, ...(targetLineHeight === undefined ? {} : { targetLineHeight }) };
   const images = [];
   const owners = [];      // images[i] 가 어느 자막의 것인지
   const prefixes = [];    // 그림에서 찾아낸 음표(♪) 등

@@ -51,6 +51,23 @@ const BAND_INK = 0.08;
 const BAND_PAD = 0.15;
 
 /**
+ * 한 줄 안에서 끊긴 조각을 도로 붙일 때 쓰는 여유.
+ *
+ * '응' 이나 '요즘' 처럼 위아래로 쌓인 글자는 가운데가 가로로 비어 있다.
+ * 글자가 몇 자 안 되는 짧은 줄에서는 그 빈 줄을 메워 줄 다른 글자가 없어서
+ * 한 줄이 두 조각으로 끊긴다. 조각 사이 틈(12픽셀)이 줄 사이 틈(11픽셀)과
+ * 거의 같아, 틈 크기만으로는 가릴 수 없다. 그래서 '합쳐도 한 줄 높이를
+ * 넘지 않으면 같은 줄' 로 본다. 줄 높이는 트랙 전체에서 재므로 믿을 수 있다.
+ */
+const MERGE_WITHIN = 1.25;
+
+/**
+ * 이보다 얇게 잡힌 띠는 글자가 잘린 것으로 보고 한 줄 크기로 넓힌다.
+ * 짧은 줄은 잉크가 적어 위아래가 문턱 아래로 깎여 나가기도 한다.
+ */
+const THIN_BAND = 0.5;
+
+/**
  * 음표(♪) 를 알아보는 데 쓸 본. 16x24 회색 그림을 base64 로 담았다.
  *
  * 인식기의 한국어·영어 자료에는 ♪ 가 아예 없다(글자 목록 1158자 / 112자에 없음).
@@ -118,36 +135,102 @@ function withMargin({ data, width, height }, margin) {
  * @returns [{ image, prefix }] - prefix 는 그림에서 찾아낸 음표(♪) 등
  */
 export function prepareLines(image, options = {}) {
-  const { margin = 16, findNotes = true } = options;
-  const whole = toGrayscale(image, options);
+  const {
+    margin = 16,
+    findNotes = true,
+    lineHeight = null,
+    targetLineHeight = TARGET_LINE_HEIGHT,
+  } = options;
+
+  const whole = toGrayscale(image, { ...options, targetLineHeight: 0 });
   if (!whole) return [];
 
   const bands = inkBands(whole.data, whole.width, whole.height);
-  const lines = [];
+  // 줄 높이는 트랙 전체에서 잰 값을 쓴다. 없으면 이 그림 하나로 가늠한다.
+  const track = lineHeight || Math.max(...bands.map(([a, b]) => b - a));
 
-  bands.forEach(([start, end], index) => {
+  // 한 줄 안에서 끊긴 조각을 도로 붙인다.
+  const joined = [[...bands[0]]];
+  for (const [start, end] of bands.slice(1)) {
+    if (end - joined[joined.length - 1][0] <= track * MERGE_WITHIN) {
+      joined[joined.length - 1][1] = end;
+    } else joined.push([start, end]);
+  }
+
+  const lines = [];
+  joined.forEach(([bandStart, bandEnd], index) => {
+    const above = index > 0 ? joined[index - 1][1] : 0;
+    const below = index + 1 < joined.length ? joined[index + 1][0] : whole.height;
+
+    let start = bandStart;
+    let end = bandEnd;
+    // 너무 얇게 잡힌 띠는 글자가 잘린 것이다. 한 줄 크기로 넓힌다.
+    if (end - start < track * THIN_BAND) {
+      const centre = (start + end) / 2;
+      start = Math.max(above, centre - track / 2);
+      end = Math.min(below, centre + track / 2);
+    }
+
     let pad = Math.max(2, Math.round((end - start) * BAND_PAD));
     // 옆 줄까지 넘어가지 않도록, 이웃과의 틈의 절반을 넘지 않게 한다.
-    if (index > 0) pad = Math.min(pad, Math.max(1, (start - bands[index - 1][1]) >> 1));
-    if (index + 1 < bands.length) pad = Math.min(pad, Math.max(1, (bands[index + 1][0] - end) >> 1));
+    if (index > 0) pad = Math.min(pad, Math.max(1, Math.floor((start - above) / 2)));
+    if (index + 1 < joined.length) pad = Math.min(pad, Math.max(1, Math.floor((below - end) / 2)));
 
-    const top = Math.max(0, start - pad);
-    const bottom = Math.min(whole.height, end + pad);
+    const top = Math.max(0, Math.round(start - pad));
+    const bottom = Math.min(whole.height, Math.round(end + pad));
     const height = bottom - top;
-    const strip = new Uint8ClampedArray(whole.width * height);
-    strip.set(whole.data.subarray(top * whole.width, bottom * whole.width));
+    const cut = new Uint8ClampedArray(whole.width * height);
+    cut.set(whole.data.subarray(top * whole.width, bottom * whole.width));
 
-    let piece = { data: strip, width: whole.width, height };
+    let piece = { data: cut, width: whole.width, height };
     let prefix = '';
     if (findNotes) {
       const { line, note } = stripLeadingNote(piece);
       piece = line;
-      if (note) prefix = '♪';
+      if (note) prefix = '\u266a';
     }
+
+    // 글자가 너무 크면 인식기가 오히려 못 읽는다. 확실히 큰 것만 줄인다.
+    if (targetLineHeight && track > RESIZE_ABOVE) {
+      const factor = targetLineHeight / track;
+      piece = resize(piece.data, piece.width, piece.height,
+        Math.max(1, Math.round(piece.width * factor)),
+        Math.max(1, Math.round(piece.height * factor)));
+    }
+
     lines.push({ image: withMargin(piece, margin), prefix });
   });
 
   return lines;
+}
+
+/**
+ * 트랙 전체에서 글자 한 줄의 높이를 잰다.
+ *
+ * 자막은 한 트랙 안에서 글자 크기가 일정하므로, 여러 자막에서 재어 가운데
+ * 값을 쓰면 아주 안정적이다(실측: 자막 1,578개에서 중앙값 49픽셀, 사분위
+ * 48~49픽셀). 자막 하나만 보고 재면 짧은 줄에서 크게 어긋난다.
+ *
+ * 한 자막 안에서는 '가장 큰 띠' 를 쓴다. 조각난 띠보다 온전한 줄일 가능성이
+ * 높기 때문이다. 표본 몇 개면 충분하므로 전부 보지는 않는다.
+ */
+export function measureLineHeight(images, sample = 120) {
+  const list = [...images];
+  if (!list.length) return 0;
+
+  const step = Math.max(1, Math.floor(list.length / sample));
+  const heights = [];
+  for (let i = 0; i < list.length && heights.length < sample; i += step) {
+    const gray = toGrayscale(list[i], { targetLineHeight: 0, straighten: false });
+    if (!gray) continue;
+    const bands = inkBands(gray.data, gray.width, gray.height);
+    heights.push(Math.max(...bands.map(([a, b]) => b - a)));
+  }
+  if (!heights.length) return 0;
+
+  heights.sort((a, b) => a - b);
+  const middle = heights.length >> 1;
+  return heights.length % 2 ? heights[middle] : (heights[middle - 1] + heights[middle]) / 2;
 }
 
 /** 자막 그림을 '흰 바탕 검은 글자' 회색 그림으로. 여백은 붙이지 않는다. */
