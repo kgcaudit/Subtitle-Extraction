@@ -261,7 +261,9 @@ def parse_sup(path) -> list[BitmapCue]:
     last_pts_ms = 0
 
     for pts, seg_type, payload in iter_segments(data):
-        pts_ms = pts * 1000 // _PTS_HZ
+        # 90kHz 눈금을 밀리초로. 반올림한다 — 버리면 웹판(Math.round)과
+        # 자막 절반의 시각이 1밀리초씩 어긋난다.
+        pts_ms = (pts * 1000 + _PTS_HZ // 2) // _PTS_HZ
         last_pts_ms = max(last_pts_ms, pts_ms)
 
         if seg_type == SEG_PCS:

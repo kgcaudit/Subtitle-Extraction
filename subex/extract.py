@@ -33,8 +33,25 @@ def _notify(options: ExtractOptions, stage: str, done: int, total: int) -> None:
         options.on_progress(stage, done, total)
 
 
+def _is_raw_sup(source: Path) -> bool:
+    """이미 PGS 스트림 그 자체인 파일인가(.sup). 앞 두 바이트가 'PG' 다."""
+    try:
+        with open(source, "rb") as handle:
+            return handle.read(2) == b"PG"
+    except OSError:
+        return False
+
+
 def _read_bitmap_cues(source: Path, track: SubtitleTrack, workdir: Path) -> list[BitmapCue]:
     if track.codec == "hdmv_pgs_subtitle":
+        # .sup 파일은 그대로 읽는다. ffmpeg 을 거치면 시각이 어긋난다.
+        #
+        # .sup 은 담는 그릇이 따로 없어서 파일의 시작 시각이 곧 '첫 자막이 나오는
+        # 시각' 이다. ffmpeg 은 출력이 0 에서 시작하도록 시각을 당겨 쓰므로, 그
+        # 값만큼 자막 전체가 앞당겨진다(실측: 어떤 블루레이 자막이 53.072초 빨라짐).
+        if _is_raw_sup(source):
+            return parse_sup(source)
+
         target = workdir / f"track{track.index}.sup"
         run([
             "ffmpeg", "-v", "error", "-y",
