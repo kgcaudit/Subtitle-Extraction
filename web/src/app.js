@@ -29,14 +29,15 @@ const ui = {
   resultSection: document.getElementById('resultSection'),
   results: document.getElementById('results'),
   ocrLang: document.getElementById('ocrLang'),
-  ocrScale: document.getElementById('ocrScale'),
+  ocrFit: document.getElementById('ocrFit'),
 };
 
 /** 그림 자막 인식 설정. 측정해 보면 자료에 따라 최선이 달라 고를 수 있게 했다. */
 function ocrSettings() {
   return {
     language: ui.ocrLang?.value || 'auto',
-    scale: Number(ui.ocrScale?.value) || 2,
+    // 0 이면 '원본 크기 그대로'. 그 밖에는 이 높이에 맞춰 큰 글자만 줄인다.
+    targetLineHeight: ui.ocrFit?.value === 'off' ? 0 : undefined,
   };
 }
 
@@ -89,7 +90,7 @@ function setBusy(busy) {
   ui.extract.disabled = busy || state.selected.size === 0;
   ui.file.disabled = busy;
   if (ui.ocrLang) ui.ocrLang.disabled = busy;
-  if (ui.ocrScale) ui.ocrScale.disabled = busy;
+  if (ui.ocrFit) ui.ocrFit.disabled = busy;
 }
 
 function renderTracks() {
@@ -268,7 +269,7 @@ async function extractSelected() {
 
       let textCues = cues;
       if (cues.some((cue) => cue.image)) {
-        const prepared = prepareImages(cues, settings.scale);
+        const prepared = prepareImages(cues, settings.targetLineHeight);
         pool ??= await startOcr(settings.language, prepared.images);
         textCues = await recognizeCues(cues, prepared, pool, label);
       }
@@ -328,12 +329,12 @@ async function startOcr(language, images) {
 }
 
 /** 그림 자막을 인식기에 넣을 수 있게 다듬는다. 어느 자막의 것인지도 함께 기억한다. */
-function prepareImages(cues, scale) {
+function prepareImages(cues, targetLineHeight) {
   const images = [];
   const index = [];
   cues.forEach((cue, position) => {
     if (!cue.image) return;
-    const image = prepareForOcr(cue.image, { scale });
+    const image = prepareForOcr(cue.image, targetLineHeight === undefined ? {} : { targetLineHeight });
     if (!image) return;
     images.push(image);
     index.push(position);

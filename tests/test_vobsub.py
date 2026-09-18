@@ -87,3 +87,39 @@ def test_end_to_end_text(media, font):
     engine = TesseractEngine(language="kor+eng" if font else "eng")
     recognized = [engine.recognize(prepare_for_ocr(cue.image)) for cue in cues]
     assert recognized == media["texts"]
+
+
+def test_large_text_is_shrunk_small_text_is_not():
+    """글자가 크면 줄여서 인식기에 넣는다. 작은 글자는 건드리지 않는다.
+
+    실측에서 크게 넣을수록 나빠졌다(ㅈ 을 ㅅ 으로 읽는 실수가 특히 늘었다).
+    그렇다고 작은 글자를 키우면 그것도 손해라 줄이기만 한다.
+    """
+    from PIL import Image
+
+    from subex.bitmap import prepare_for_ocr, text_line_height
+
+    def block(line_height: int, gap: int, lines: int) -> Image.Image:
+        """글자처럼 — 줄마다 세로획 몇 개, 줄 사이는 빈칸.
+
+        꽉 채우면 잉크가 너무 많아 전처리가 색을 한 번 더 뒤집는다.
+        """
+        height = lines * line_height + (lines - 1) * gap
+        image = Image.new("RGBA", (60, height), (0, 0, 0, 0))
+        for line in range(lines):
+            top = line * (line_height + gap)
+            for row in range(line_height):
+                for base in (8, 24, 40):
+                    for dx in range(3):
+                        image.putpixel((base + dx, top + row), (255, 255, 255, 255))
+        return image
+
+    big = block(80, 20, 2)
+    assert text_line_height(prepare_for_ocr(big, target_line_height=None, margin=0)) == 80
+    shrunk = prepare_for_ocr(big, margin=0, straighten=False)
+    assert shrunk.height < big.height, "큰 글자는 줄어들어야 한다"
+
+    small = block(20, 10, 2)
+    assert prepare_for_ocr(small, margin=0, straighten=False).size == small.size, (
+        "작은 글자는 그대로여야 한다"
+    )

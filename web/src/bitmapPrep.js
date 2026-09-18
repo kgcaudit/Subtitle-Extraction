@@ -17,7 +17,31 @@ const SLANT_LIMIT = 0.4;
 /** 기울기는 대충만 봐도 되므로 이 높이로 줄여서 잰다. 그만큼 빨라진다. */
 const SLANT_PROBE_HEIGHT = 48;
 
-export function prepareForOcr(image, { scale = 2, margin = 16, straighten = true } = {}) {
+/**
+ * 글자 한 줄이 이 높이일 때 인식기가 가장 잘 읽는다. 이보다 크면 줄여서 넣는다.
+ *
+ * 실측으로 나온 값이다. 같은 자막을 원본 크기를 바꿔 가며(한 줄 25~100픽셀)
+ * 재 봤더니, 크게 넣을수록 나빠졌다. 특히 ㅈ 을 ㅅ 으로 읽는 실수가 그렇다.
+ *
+ *     넣는 크기        글자정확도(최저)   ㅈ↔ㅅ 실수(최다)
+ *     2배로 키움            92.10%            14
+ *     손대지 않음            93.79%             8
+ *     28픽셀로 줄임          96.61%             0
+ *
+ * 키우는 것은 어느 크기에서도 손해였다. 그래서 줄이기만 하고 키우지는 않는다.
+ */
+export const TARGET_LINE_HEIGHT = 28;
+
+/**
+ * 다만 '확실히 클 때' 만 손댄다. 한 줄이 이보다 작으면 줄여도 나아지지 않고
+ * (실측: 27~42픽셀 구간에서는 차이가 없다), 공연히 다시 그리면서 뭉개기만 한다.
+ */
+const RESIZE_ABOVE = 40;
+
+export function prepareForOcr(
+  image,
+  { targetLineHeight = TARGET_LINE_HEIGHT, margin = 16, straighten = true } = {},
+) {
   const { width, height, data } = image;
   if (!width || !height) return null;
 
@@ -41,15 +65,20 @@ export function prepareForOcr(image, { scale = 2, margin = 16, straighten = true
     for (let i = 0; i < gray.length; i += 1) gray[i] = 255 - gray[i];
   }
 
-  // 기울기는 작은 그림에서 재고(빠르다), 되돌리기는 키운 뒤에 한다(덜 뭉갠다).
   const slant = straighten ? estimateSlant(gray, width, height) : 0;
 
-  const enlarged = scale > 1 ? resize(gray, width, height, width * scale, height * scale) : {
-    data: gray,
-    width,
-    height,
-  };
-  const scaled = deslant(enlarged, slant);
+  // 글자가 너무 크면 인식기가 오히려 못 읽는다. 확실히 큰 것만 줄인다.
+  let fitted = { data: gray, width, height };
+  if (targetLineHeight) {
+    const line = textLineHeight(gray, width, height);
+    const factor = targetLineHeight / line;
+    if (line > RESIZE_ABOVE) {
+      fitted = resize(gray, width, height,
+        Math.max(1, Math.round(width * factor)), Math.max(1, Math.round(height * factor)));
+    }
+  }
+
+  const scaled = deslant(fitted, slant);
 
   // 인식기는 글자가 가장자리에 붙어 있으면 잘 못 읽는다. 흰 여백을 둘러 준다.
   const outWidth = scaled.width + margin * 2;
@@ -163,4 +192,42 @@ export function deslant(image, slant) {
     }
   }
   return { data: out, width: outWidth, height };
+}
+
+/**
+ * 글자 한 줄의 높이를 잰다.
+ *
+ * 가로로 잉크가 있는 띠를 찾아 그 중앙값을 쓴다. 자막은 한 줄이나 두 줄이고
+ * 줄 사이가 비어 있으므로 이렇게 세면 글자 크기가 나온다.
+ */
+export function textLineHeight(gray, width, height) {
+  const rows = new Float64Array(height);
+  let peak = 0;
+  for (let y = 0; y < height; y += 1) {
+    let sum = 0;
+    const row = y * width;
+    for (let x = 0; x < width; x += 1) sum += 255 - gray[row + x];
+    rows[y] = sum;
+    if (sum > peak) peak = sum;
+  }
+  if (peak <= 0) return height;
+
+  const limit = peak * 0.08;
+  const bands = [];
+  let start = null;
+  for (let y = 0; y < height; y += 1) {
+    if (rows[y] > limit && start === null) start = y;
+    else if (rows[y] <= limit && start !== null) {
+      bands.push(y - start);
+      start = null;
+    }
+  }
+  if (start !== null) bands.push(height - start);
+
+  const kept = bands.filter((band) => band >= 4);   // 점·따옴표 같은 것은 뺀다
+  if (!kept.length) return height;
+
+  kept.sort((a, b) => a - b);
+  const middle = kept.length >> 1;
+  return kept.length % 2 ? kept[middle] : (kept[middle - 1] + kept[middle]) / 2;
 }

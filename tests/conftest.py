@@ -27,7 +27,7 @@ KOREAN_FONTS = [
 SAMPLE_LINES = [
     "Hello world\nsecond line",
     "안녕하세요 자막입니다",
-    "Mixed 한글 and English 2026",
+    "Mixed 한글 with English 2026",
 ]
 
 needs_ffmpeg = pytest.mark.skipif(

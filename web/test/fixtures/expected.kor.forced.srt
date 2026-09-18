@@ -9,4 +9,4 @@ second line
 
 3
 00:00:07,000 --> 00:00:09,503
-Mixed 한글 and English 2026
+Mixed 한글 with English 2026

@@ -2,11 +2,29 @@
 
 from __future__ import annotations
 
+import statistics
 from dataclasses import dataclass
 
 from PIL import Image
 
-__all__ = ["BitmapCue", "prepare_for_ocr", "estimate_slant", "deslant"]
+__all__ = ["BitmapCue", "prepare_for_ocr", "estimate_slant", "deslant", "text_line_height"]
+
+#: 글자 한 줄이 이 높이일 때 인식기가 가장 잘 읽는다. 이보다 크면 줄여서 넣는다.
+#:
+#: 실측으로 나온 값이다. 같은 자막을 원본 크기를 바꿔 가며(한 줄 25~100픽셀)
+#: 재 봤더니, 크게 넣을수록 나빠졌다. 특히 ㅈ 을 ㅅ 으로 읽는 실수가 그렇다.
+#:
+#:     넣는 크기        글자정확도(최저)   ㅈ↔ㅅ 실수(최다)
+#:     2배로 키움            92.10%            14
+#:     손대지 않음            93.79%             8
+#:     28픽셀로 줄임          96.61%             0
+#:
+#: 키우는 것은 어느 크기에서도 손해였다. 그래서 줄이기만 하고 키우지는 않는다.
+_TARGET_LINE_HEIGHT = 28
+
+#: 다만 '확실히 클 때' 만 손댄다. 한 줄이 이보다 작으면 줄여도 나아지지 않고
+#: (실측: 27~42픽셀 구간에서는 차이가 없다), 공연히 다시 그리면서 뭉개기만 한다.
+_RESIZE_ABOVE = 40
 
 #: 기울기를 재 볼 후보와 간격. 0(똑바름) ~ 0.4(많이 기울어짐).
 _SLANT_STEP = 0.025
@@ -68,8 +86,40 @@ def estimate_slant(image: Image.Image) -> float:
     return best_slant
 
 
+def text_line_height(image: Image.Image) -> float:
+    """글자 한 줄의 높이를 잰다.
+
+    가로로 잉크가 있는 띠를 찾아 그 중앙값을 쓴다. 자막은 한 줄이나 두 줄이고
+    줄 사이가 비어 있으므로 이렇게 세면 글자 크기가 나온다.
+    """
+    width, height = image.size
+    pixels = image.load()
+    rows = [sum(255 - pixels[x, y] for x in range(width)) for y in range(height)]
+    peak = max(rows) if rows else 0
+    if peak <= 0:
+        return float(height)
+
+    limit = peak * 0.08
+    bands: list[int] = []
+    start = None
+    for y, value in enumerate(rows):
+        if value > limit and start is None:
+            start = y
+        elif value <= limit and start is not None:
+            bands.append(y - start)
+            start = None
+    if start is not None:
+        bands.append(height - start)
+
+    bands = [band for band in bands if band >= 4]     # 점·따옴표 같은 것은 뺀다
+    return float(statistics.median(bands)) if bands else float(height)
+
+
 def prepare_for_ocr(
-    image: Image.Image, scale: int = 2, margin: int = 16, straighten: bool = True
+    image: Image.Image,
+    target_line_height: int | None = _TARGET_LINE_HEIGHT,
+    margin: int = 16,
+    straighten: bool = True,
 ) -> Image.Image:
     """자막 비트맵을 Tesseract 가 좋아하는 모양(흰 바탕 + 검은 글자)으로 바꾼다.
 
@@ -94,13 +144,18 @@ def prepare_for_ocr(
     if mean < 110:
         inverted = inverted.point(lambda value: 255 - value)
 
-    # 기울기는 작은 그림에서 재고(빠르다), 되돌리기는 키운 뒤에 한다(덜 뭉갠다).
     slant = estimate_slant(inverted) if straighten else 0.0
 
-    if scale > 1:
-        inverted = inverted.resize(
-            (inverted.width * scale, inverted.height * scale), Image.LANCZOS
-        )
+    # 글자가 너무 크면 인식기가 오히려 못 읽는다. 확실히 큰 것만 줄인다.
+    if target_line_height:
+        line = text_line_height(inverted)
+        factor = target_line_height / line
+        if line > _RESIZE_ABOVE:
+            inverted = inverted.resize(
+                (max(1, round(inverted.width * factor)), max(1, round(inverted.height * factor))),
+                Image.LANCZOS,
+            )
+
     inverted = deslant(inverted, slant)
 
     canvas = Image.new("L", (inverted.width + margin * 2, inverted.height + margin * 2), 255)

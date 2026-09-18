@@ -4,7 +4,6 @@
 //   node tools/verify.js 자막.idx 자막.sub [옵션]     DVD 자막은 두 파일이 짝이다
 //
 //     --lang auto       인식 언어: auto | kor | kor+eng | eng (기본 auto)
-//     --scale 2         확대 배율 (기본 2)
 //     --dump 5          해독한 그림과 인식에 넣은 그림을 앞에서 N장 저장
 //     --out 폴더        결과를 저장할 폴더 (기본 verify-out)
 //     --no-python       파이썬판 대조를 건너뛴다
@@ -26,12 +25,11 @@ const CHROMIUM_CANDIDATES = [
 ];
 
 function parseArgs(argv) {
-  const options = { lang: 'auto', scale: 2, dump: 0, out: 'verify-out', python: true };
+  const options = { lang: 'auto', dump: 0, out: 'verify-out', python: true };
   const rest = [];
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--lang') options.lang = argv[++i];
-    else if (arg === '--scale') options.scale = Number(argv[++i]);
     else if (arg === '--dump') options.dump = Number(argv[++i]);
     else if (arg === '--out') options.out = argv[++i];
     else if (arg === '--no-python') options.python = false;
@@ -138,7 +136,7 @@ async function main() {
     console.error(
       missing.length ? `찾을 수 없는 파일: ${missing.join(', ')}` : '영상 파일을 지정하세요.',
     );
-    console.error('  node tools/verify.js 영상파일 [--lang kor+eng] [--scale 2] [--dump 5]');
+    console.error('  node tools/verify.js 영상파일 [--lang kor+eng] [--dump 5]');
     console.error('  node tools/verify.js 자막.idx 자막.sub          (DVD 자막은 두 파일이 짝)');
     process.exit(1);
   }
@@ -169,7 +167,7 @@ async function main() {
     console.log(`\n== ${basename(options.video)} ==`);
     const report = await page.evaluate(
       (settings) => window.runVerify(settings),
-      { language: options.lang, scale: options.scale, dumpCount: options.dump },
+      { language: options.lang, dumpCount: options.dump },
     );
 
     console.log(`파일          : ${megabytes(report.fileSize)} (${report.container.toUpperCase()})`);

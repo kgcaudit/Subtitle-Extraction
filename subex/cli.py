@@ -40,8 +40,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="이미지 자막 OCR 언어 (기본: kor+eng)")
     parser.add_argument("--psm", type=int, default=6, metavar="N",
                         help="Tesseract 페이지 분할 모드 (기본: 6)")
-    parser.add_argument("--scale", type=int, default=2, metavar="N",
-                        help="OCR 전 확대 배율 (기본: 2). 글자가 작으면 3~4 를 써 본다")
+    parser.add_argument("--line-height", type=int, default=28, metavar="N",
+                        help="OCR 에 넣을 글자 한 줄 높이 (기본: 28). 큰 글자만 줄이고 키우지는 않는다. "
+                             "0 을 주면 원본 크기 그대로")
     parser.add_argument("-j", "--jobs", type=int, metavar="N", help="OCR 동시 실행 개수 (기본: CPU 수)")
     parser.add_argument("--encoding", default="utf-8", metavar="ENC",
                         help="출력 인코딩 (기본: utf-8). 구형 플레이어는 cp949")
@@ -157,7 +158,7 @@ def _process_file(source: Path, args, used: set[Path]) -> tuple[int, int]:
         psm=args.psm,
         jobs=args.jobs,
         strip_styling=not args.keep_styling,
-        scale=args.scale,
+        line_height=args.line_height,
         on_progress=_Progress(args.quiet),
     )
 

@@ -38,7 +38,7 @@ async function toDataUrl(image) {
   });
 }
 
-window.runVerify = async function runVerify({ language = 'kor+eng', scale = 2, dumpCount = 0 } = {}) {
+window.runVerify = async function runVerify({ language = 'kor+eng', dumpCount = 0 } = {}) {
   // 화면(app.js)과 같은 규칙으로 .idx/.sub 짝을 묶는다.
   const source = await resolveSource(await classify(document.getElementById('file').files));
   if (!source.ready) throw new Error(source.message ?? '고른 파일로는 읽을 수 없습니다');
@@ -84,7 +84,7 @@ window.runVerify = async function runVerify({ language = 'kor+eng', scale = 2, d
       let textCues = cues;
 
       if (cues.some((cue) => cue.image)) {
-        const images = cues.filter((cue) => cue.image).map((cue) => prepareForOcr(cue.image, { scale }));
+        const images = cues.filter((cue) => cue.image).map((cue) => prepareForOcr(cue.image));
         if (!pool) {
           const started = await start(language, images);
           pool = started.pool;

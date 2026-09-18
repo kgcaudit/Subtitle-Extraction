@@ -2,7 +2,7 @@
  "texts": [
   "Hello world\nsecond line",
   "안녕하세요 자막입니다",
-  "Mixed 한글 and English 2026"
+  "Mixed 한글 with English 2026"
  ],
  "expectedSrt": [
   "expected.eng.srt",
@@ -30,7 +30,7 @@
   {
    "startMs": 7000,
    "endMs": 9500,
-   "width": 586,
+   "width": 599,
    "height": 47,
    "rgba": "pgs_sup.2.rgba"
   }
@@ -53,7 +53,7 @@
   {
    "startMs": 6000,
    "endMs": 8500,
-   "width": 586,
+   "width": 599,
    "height": 47,
    "rgba": "pgs_mkv.2.rgba"
   }
@@ -76,7 +76,7 @@
   {
    "startMs": 7000,
    "endMs": 9503,
-   "width": 373,
+   "width": 381,
    "height": 32,
    "rgba": "vobsub_idx.2.rgba"
   }
@@ -99,7 +99,7 @@
   {
    "startMs": 7000,
    "endMs": 9503,
-   "width": 373,
+   "width": 381,
    "height": 32,
    "rgba": "vobsub_mkv.2.rgba"
   }

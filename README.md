@@ -79,7 +79,7 @@ subex bluray.sup --ocr-lang kor      # .sup 파일을 바로
 | `--outdir DIR` | 출력 폴더 |
 | `--ocr-lang LANGS` | OCR 언어. 기본 `kor+eng` |
 | `--psm N` | Tesseract 페이지 분할 모드. 기본 `6` |
-| `--scale N` | OCR 전 확대 배율. 기본 `2` |
+| `--line-height N` | OCR 에 넣을 글자 한 줄 높이. 기본 `28` (큰 글자만 줄이고 키우지는 않는다). `0` 이면 원본 크기 그대로 |
 | `-j, --jobs N` | OCR 동시 실행 개수. 기본은 CPU 수 |
 | `--encoding ENC` | 출력 인코딩. 기본 `utf-8` |
 | `--bom` | UTF-8 BOM 추가 |

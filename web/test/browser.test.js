@@ -175,7 +175,7 @@ test('인식 언어를 바꿔도 끝까지 처리된다', { timeout: 300000 }, a
   await withPage(async (page, pageErrors) => {
     await page.click('.settings > summary'); // 설정은 접혀 있다. 사용자처럼 펼친다.
     await page.selectOption('#ocrLang', 'kor');
-    await page.selectOption('#ocrScale', '3');
+    await page.selectOption('#ocrFit', 'off');
     const produced = await extractInBrowser(page, 'rich.sup', 1);
     assert.deepEqual(pageErrors, [], '브라우저에서 오류가 났습니다');
     assert.ok(produced[0].text.includes('-->'), 'SRT 가 만들어지지 않았습니다');

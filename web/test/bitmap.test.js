@@ -324,3 +324,67 @@ test('기울기 되돌리기: 똑바른 그림은 손대지 않는다', async ()
   const image = { data: new Uint8ClampedArray(9).fill(128), width: 3, height: 3 };
   assert.equal(deslant(image, 0), image, '기울기가 0이면 그대로 돌려줘야 합니다');
 });
+
+/**
+ * 글자처럼 생긴 그림을 만든다 — 줄마다 세로획 몇 개, 줄 사이는 빈칸.
+ *
+ * 꽉 채우면 안 된다. 잉크가 너무 많으면 '어두운 글자 + 밝은 박스' 로 보여
+ * 전처리가 색을 한 번 더 뒤집는다(실제 자막에 있는 경우다).
+ */
+function textLike(lineHeight, gap, count) {
+  const width = 60;
+  const height = count * lineHeight + (count - 1) * gap;
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let line = 0; line < count; line += 1) {
+    const top = line * (lineHeight + gap);
+    for (let row = 0; row < lineHeight; row += 1) {
+      for (const base of [8, 24, 40]) {
+        for (const dx of [0, 1, 2]) {
+          const at = ((top + row) * width + base + dx) * 4;
+          data[at] = data[at + 1] = data[at + 2] = 255;
+          data[at + 3] = 255;
+        }
+      }
+    }
+  }
+  return { width, height, data };
+}
+
+test('줄 높이 재기: 글자 띠의 높이를 찾아낸다', async () => {
+  const { textLineHeight } = await import('../src/bitmapPrep.js');
+  const grayOf = (image) => {
+    const gray = new Uint8ClampedArray(image.width * image.height);
+    for (let i = 0; i < gray.length; i += 1) gray[i] = 255 - image.data[i * 4 + 3];
+    return gray;
+  };
+
+  for (const [lineHeight, count] of [[20, 1], [20, 2], [48, 2], [12, 3]]) {
+    const image = textLike(lineHeight, 10, count);
+    const found = textLineHeight(grayOf(image), image.width, image.height);
+    assert.equal(found, lineHeight, `${count}줄짜리 ${lineHeight}px 를 ${found} 로 쟀습니다`);
+  }
+});
+
+test('글자 크기 맞춤: 큰 글자만 줄이고 작은 글자는 그대로 둔다', async () => {
+  const { prepareForOcr, TARGET_LINE_HEIGHT } = await import('../src/bitmapPrep.js');
+  const MARGIN = 16;
+
+  // 확실히 큰 글자(한 줄 80px)는 줄어들어야 한다.
+  const big = textLike(80, 20, 2);
+  const shrunk = prepareForOcr(big, { straighten: false });
+  assert.ok(
+    shrunk.height - MARGIN * 2 < big.height,
+    `큰 글자가 줄지 않았습니다 (${big.height} → ${shrunk.height - MARGIN * 2})`,
+  );
+
+  // 작은 글자(한 줄 20px)는 건드리지 않는다 — 키우면 오히려 나빠진다.
+  const small = textLike(20, 10, 2);
+  const kept = prepareForOcr(small, { straighten: false });
+  assert.equal(kept.height - MARGIN * 2, small.height, '작은 글자는 그대로여야 합니다');
+  assert.equal(kept.width - MARGIN * 2, small.width, '작은 글자는 그대로여야 합니다');
+
+  // 끄면 아무것도 하지 않는다.
+  const off = prepareForOcr(big, { targetLineHeight: 0, straighten: false });
+  assert.equal(off.height - MARGIN * 2, big.height, '꺼 두면 원본 크기 그대로여야 합니다');
+  assert.ok(TARGET_LINE_HEIGHT > 0);
+});

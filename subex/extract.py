@@ -24,7 +24,7 @@ class ExtractOptions:
     psm: int = 6
     jobs: int | None = None
     strip_styling: bool = True
-    scale: int = 2
+    line_height: int = 28
     on_progress: object = None       # callable(stage: str, done: int, total: int)
 
 
@@ -62,7 +62,10 @@ def extract_track(source, track: SubtitleTrack, workdir: Path,
         return []
 
     _notify(options, "prepare", 0, len(bitmap_cues))
-    images = [prepare_for_ocr(cue.image, scale=options.scale) for cue in bitmap_cues]
+    images = [
+        prepare_for_ocr(cue.image, target_line_height=options.line_height or None)
+        for cue in bitmap_cues
+    ]
     _notify(options, "prepare", len(bitmap_cues), len(bitmap_cues))
 
     engine = TesseractEngine(language=options.ocr_language, psm=options.psm)

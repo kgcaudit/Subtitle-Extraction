@@ -41,11 +41,10 @@
           </select>
         </label>
         <label>
-          <span>확대 배율</span>
-          <select id="ocrScale">
-            <option value="2" selected>2배 — 빠름 (기본)</option>
-            <option value="3">3배 — 보통</option>
-            <option value="4">4배 — 글자가 작을 때</option>
+          <span>글자 크기</span>
+          <select id="ocrFit">
+            <option value="auto" selected>자동 — 큰 글자는 줄여서 읽음 (기본)</option>
+            <option value="off">원본 크기 그대로</option>
           </select>
         </label>
         <p class="settings-note">
@@ -54,6 +53,12 @@
           몇 장을 읽어 보고, 영문 낱말이 <strong>얼마나 되는지</strong>와
           <strong>얼마나 또렷한지</strong>를 함께 보고 정합니다. 둘 다 뚜렷할 때만
           영어를 함께 씁니다.
+        </p>
+        <p class="settings-note">
+          글자 크기는 <strong>클수록 좋은 게 아닙니다.</strong> 인식기는 글자 한 줄이
+          28픽셀쯤일 때 가장 잘 읽고, 크게 넣으면 오히려 ㅈ 을 ㅅ 으로 읽는 식의
+          실수가 늘었습니다(실측: ㅈ↔ㅅ 실수 14개 → 0개). 그래서 큰 글자만 줄이고
+          작은 글자는 건드리지 않습니다.
         </p>
       </div>
     </details>
