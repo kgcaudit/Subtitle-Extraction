@@ -90,7 +90,9 @@ class _Progress:
         if done < total and now - self.last < 0.2:
             return
         self.last = now
-        label = {"prepare": "이미지 준비", "ocr": "OCR"}.get(stage, stage)
+        # OCR 은 자막 덩이가 아니라 글자 줄 단위로 센다. 끝에 찍히는 "N줄"
+        # (자막 수)과 헷갈리지 않도록 무엇을 세는지 붙여 준다.
+        label = {"prepare": "이미지 준비", "ocr": "OCR(글자 줄)"}.get(stage, stage)
         print(f"\r    {label} {done}/{total} ({done * 100 // total}%)", end="", file=sys.stderr)
         if done >= total:
             print(file=sys.stderr)
