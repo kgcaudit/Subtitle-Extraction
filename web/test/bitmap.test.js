@@ -199,6 +199,49 @@ test('자막 트랙 목록이 세 개 모두 잡힌다', async () => {
   assert.deepEqual(tracks.map((t) => t.language), ['eng', 'kor', 'kor']);
 });
 
+test('색인을 따라가도 훑은 것과 결과가 같다 (MKV)', async () => {
+  // MKV 는 자막 조각이 영상·소리와 뒤섞여 흩어져 있어, 그냥 훑으면 영상 파일을
+  // 통째로 읽게 된다(실측: 374MB 영상에서 27KB 의 자막을 얻으려고 372.8MB 를
+  // 읽었다). 대부분의 MKV 에는 자막 위치까지 적힌 색인(Cues)이 있어 그 자리만
+  // 집어 읽을 수 있다. 빠른 길과 훑는 길이 **같은 답**을 내야 쓸 수 있다.
+  const { listSubtitleTracks, readSubtitleSamples, readSamplesByScanning } =
+    await import('../src/mkv.js');
+
+  const file = fileFrom('sample.mkv');
+  const { tracks, timestampScale } = await listSubtitleTracks(file);
+  assert.ok(tracks.length >= 3, '자막 트랙 세 종류가 있어야 한다');
+
+  for (const track of tracks) {
+    const fast = await readSubtitleSamples(file, track.trackNumber, timestampScale);
+    const slow = await readSamplesByScanning(file, track.trackNumber, timestampScale);
+    const key = (sample) => `${sample.startMs}/${sample.durationMs}/${Array.from(sample.data).join(',')}`;
+
+    assert.deepEqual(
+      fast.samples.map(key),
+      slow.samples.map(key),
+      `트랙 #${track.subtitleIndex} (${track.mimeType}) 의 조각이 달라졌다`,
+    );
+  }
+});
+
+test('색인을 못 쓰면 훑는 길만으로도 다 읽힌다 (MKV)', async () => {
+  // 색인은 있으면 쓰고 없으면 그만이다. 옛날 파일이나 스트리밍으로 만들어진
+  // 파일에는 색인이 없는데, 그때 쓰는 길이 이것이다. 여기가 깨지면 그런 파일이
+  // 통째로 안 읽힌다.
+  const { listSubtitleTracks, readSamplesByScanning } = await import('../src/mkv.js');
+
+  const file = fileFrom('sample.mkv');
+  const { tracks, timestampScale } = await listSubtitleTracks(file);
+
+  for (const track of tracks) {
+    const { samples } = await readSamplesByScanning(file, track.trackNumber, timestampScale);
+    assert.ok(
+      samples.length > 0,
+      `트랙 #${track.subtitleIndex} (${track.mimeType}) 을 훑어서 읽지 못했다`,
+    );
+  }
+});
+
 test('인식 언어 고르기: 실측한 세 경우를 그대로 가른다', async () => {
   // 실제로 재어 본 값이다. 여기가 어긋나면 자동 선택이 뒤집힌 것이다.
   const { decideLanguage } = await import('../src/ocr.js');
