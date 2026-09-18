@@ -7,7 +7,10 @@ from dataclasses import dataclass
 
 from PIL import Image
 
-__all__ = ["BitmapCue", "prepare_for_ocr", "estimate_slant", "deslant", "text_line_height"]
+__all__ = [
+    "BitmapCue", "PreparedLine", "prepare_for_ocr", "prepare_lines",
+    "estimate_slant", "deslant", "text_line_height",
+]
 
 #: 글자 한 줄이 이 높이일 때 인식기가 가장 잘 읽는다. 이보다 크면 줄여서 넣는다.
 #:
@@ -32,6 +35,45 @@ _SLANT_LIMIT = 0.4
 
 #: 기울기는 대충만 봐도 되므로 이 높이로 줄여서 잰다. 그만큼 빨라진다.
 _SLANT_PROBE_HEIGHT = 48
+
+
+#: 음표(♪) 를 알아보는 데 쓸 본. 16x24 회색 그림을 base64 로 담았다.
+#:
+#: 인식기의 한국어·영어 자료에는 ♪ 가 아예 없다(글자 목록 1158자 / 112자에 없음).
+#: 그래서 인식기는 ♪ 를 죽었다 깨어나도 못 내놓는다. 실제로 영화 한 편에서
+#: 한 번도 못 읽었고, 대신 》 ^ _ > 같은 엉뚱한 글자를 내거나 그냥 흘렸다.
+#: 그러니 글자로 고칠 수가 없고, 그림에서 직접 찾아내는 수밖에 없다.
+_NOTE_TEMPLATE_BASE64 = (
+    "AAAAAAAAAJPlYgAAAAAAAAAAAAAAAACT5mUBAAAAAAAAAAAAAAAAk/SjHgEAAAAAAAAAAAAAAJP69ZgZAAAAAAAA"
+    "AAAAAACT+v/1jRMAAAAAAAAAAAAAk/r///aACQAAAAAAAAAAAJP5+/7/6W0IAAAAAAAAAACT7a2p8f/bSwIAAAAA"
+    "AAAAk+VjE2zo/qocAAAAAAAAAJPlYgALePjzSwAAAAAAAACT5WIAACO9/48AAAAAAAAAk+ViAAAIfP3AAAAAAAAA"
+    "AJPlYgAAAF3y1gAAAAAAAACT5WIAAABX7NAAAAAAAAAAk+ViAAAAYfWtAAAAAAAAAJPlYgAACH/6awAAAAAAAACT"
+    "5WIAAByyzCwAAAceLzEnn+ViAAJE1WMHAB12x/L33ubnWwAEPlkNACms9P//////3UAAAAAAAACO/f///////bsS"
+    "AAAAAAAA1P///////+RTAAAAAAAAALz//////dpnCgAAAAAAAABGvvDz1JA+CAAAAAAAAAAA"
+)
+_NOTE_SIZE = (16, 24)
+
+#: 본과 얼마나 닮아야 음표로 볼지. 실측으로 두 무리가 확실히 갈린다.
+#: 음표 0.49~0.74 / 한글 -0.14~0.27 / 대시(-) -0.09~-0.03 — 그 사이에 둔다.
+_NOTE_MATCH = 0.38
+
+#: 줄을 가를 때, 잉크가 이 정도는 있어야 글자 줄로 본다(가장 진한 줄 대비).
+_BAND_INK = 0.08
+
+#: 잘라 낸 줄 위아래에 줄 높이의 이만큼을 남긴다.
+#:
+#: 딱 붙여 자르면 인식기가 글자의 위아래 기준선을 못 잡아 오히려 틀린다
+#: (실측: 기준자료에서 English → Enalish). 반대로 너무 넉넉하면 옆 줄이
+#: 딸려 들어와 크게 망가진다(0.25 부터). 0.12~0.18 이 평평하게 좋다.
+_BAND_PAD = 0.15
+
+
+@dataclass
+class PreparedLine:
+    """인식기에 넣을 자막 한 줄."""
+
+    image: Image.Image
+    prefix: str = ""        # 그림에서 찾아낸 음표 등, 인식 결과 앞에 붙일 것
 
 
 @dataclass
@@ -113,6 +155,144 @@ def text_line_height(image: Image.Image) -> float:
 
     bands = [band for band in bands if band >= 4]     # 점·따옴표 같은 것은 뺀다
     return float(statistics.median(bands)) if bands else float(height)
+
+
+def _ink_bands(image: Image.Image) -> list[list[int]]:
+    """잉크가 있는 가로 띠(글자 줄)의 위·아래 위치를 찾는다."""
+    width, height = image.size
+    pixels = image.load()
+    rows = [sum(255 - pixels[x, y] for x in range(width)) for y in range(height)]
+    peak = max(rows) if rows else 0
+    if peak <= 0:
+        return [[0, height]]
+
+    limit = peak * _BAND_INK
+    bands: list[list[int]] = []
+    start = None
+    for y, value in enumerate(rows):
+        if value > limit and start is None:
+            start = y
+        elif value <= limit and start is not None:
+            bands.append([start, y])
+            start = None
+    if start is not None:
+        bands.append([start, height])
+
+    bands = [band for band in bands if band[1] - band[0] >= 8]
+    if not bands:
+        return [[0, height]]
+
+    # 받침이 떨어져 보여 끊긴 것은 도로 붙인다.
+    merged = [bands[0]]
+    for start_y, end_y in bands[1:]:
+        if start_y - merged[-1][1] <= 4:
+            merged[-1][1] = end_y
+        else:
+            merged.append([start_y, end_y])
+    return merged
+
+
+def _correlation(values: list[float], template: list[float]) -> float:
+    count = len(values)
+    mean_a = sum(values) / count
+    mean_b = sum(template) / count
+    left = [value - mean_a for value in values]
+    right = [value - mean_b for value in template]
+    spread = (sum(a * a for a in left) * sum(b * b for b in right)) ** 0.5
+    return sum(a * b for a, b in zip(left, right)) / spread if spread else 0.0
+
+
+def _note_template() -> list[float]:
+    import base64
+
+    return [value / 255 for value in base64.b64decode(_NOTE_TEMPLATE_BASE64)]
+
+
+def strip_leading_note(line: Image.Image) -> tuple[Image.Image, bool]:
+    """줄 맨 앞이 음표면 잘라 내고, 잘라 냈는지를 함께 돌려준다.
+
+    맨 앞 덩어리를 같은 크기로 맞춰 본과 견준다. 인식기가 ♪ 를 못 읽으니
+    글자가 아니라 그림에서 찾아야 하고, 찾았으면 그림에서 지워야 한다.
+    안 지우면 인식기가 그 자리에 엉뚱한 글자를 만들어 낸다.
+    """
+    width, height = line.size
+    pixels = line.load()
+    columns = [sum(255 - pixels[x, y] for y in range(height)) for x in range(width)]
+    peak = max(columns) if columns else 0
+    if peak <= 0:
+        return line, False
+
+    limit = peak * 0.02
+    first = next((x for x, value in enumerate(columns) if value > limit), None)
+    if first is None:
+        return line, False
+
+    # 빈칸이 충분히 이어지면 거기서 첫 덩어리가 끝난 것으로 본다.
+    blank_needed = max(3, round(height * 0.12))
+    blank = 0
+    end = width
+    for x in range(first, width):
+        if columns[x] <= limit:
+            blank += 1
+            if blank >= blank_needed:
+                end = x - blank + 1
+                break
+        else:
+            blank = 0
+
+    head = line.crop((first, 0, end, height))
+    box = Image.eval(head, lambda value: 255 - value).getbbox()
+    if not box:
+        return line, False
+
+    scaled = head.crop(box).resize(_NOTE_SIZE, Image.BILINEAR)
+    values = [(255 - value) / 255 for value in scaled.getdata()]
+    if _correlation(values, _note_template()) < _NOTE_MATCH:
+        return line, False
+
+    rest = line.crop((end, 0, width, height))
+    return (rest, True) if rest.width > 4 else (line, True)
+
+
+def prepare_lines(
+    image: Image.Image,
+    target_line_height: int | None = _TARGET_LINE_HEIGHT,
+    margin: int = 16,
+    straighten: bool = True,
+    find_notes: bool = True,
+) -> list[PreparedLine]:
+    """자막 한 덩이를 '글자 줄' 별로 잘라 인식기에 넣을 모양으로 만든다.
+
+    통째로 넣으면 인식기가 줄 배치를 제 나름대로 해석하면서, 가운데 맞춘
+    자막의 들쭉날쭉한 여백을 글자로 오해해 앞에 점이나 밑줄을 만들어 내고
+    때로는 한 줄을 통째로 흘린다. 줄마다 따로 넣으면 그 일이 없어진다.
+    (실측: 정답지 64줄에서 오류 21자 → 11자)
+    """
+    whole = prepare_for_ocr(image, target_line_height, margin=0, straighten=straighten)
+
+    bands = _ink_bands(whole)
+    lines: list[PreparedLine] = []
+    for index, (start, end) in enumerate(bands):
+        pad = max(2, round((end - start) * _BAND_PAD))
+        # 옆 줄까지 넘어가지 않도록, 이웃과의 틈의 절반을 넘지 않게 한다.
+        if index > 0:
+            pad = min(pad, max(1, (start - bands[index - 1][1]) // 2))
+        if index + 1 < len(bands):
+            pad = min(pad, max(1, (bands[index + 1][0] - end) // 2))
+
+        strip = whole.crop(
+            (0, max(0, start - pad), whole.width, min(whole.height, end + pad))
+        )
+        prefix = ""
+        if find_notes:
+            strip, found = strip_leading_note(strip)
+            if found:
+                prefix = "♪"
+
+        canvas = Image.new("L", (strip.width + margin * 2, strip.height + margin * 2), 255)
+        canvas.paste(strip, (margin, margin))
+        lines.append(PreparedLine(image=canvas, prefix=prefix))
+    return lines
 
 
 def prepare_for_ocr(

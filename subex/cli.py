@@ -38,8 +38,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lang", metavar="CODE", help="이 언어의 트랙만 추출 (예: kor, eng)")
     parser.add_argument("--ocr-lang", default="kor+eng", metavar="LANGS",
                         help="이미지 자막 OCR 언어 (기본: kor+eng)")
-    parser.add_argument("--psm", type=int, default=6, metavar="N",
-                        help="Tesseract 페이지 분할 모드 (기본: 6)")
+    parser.add_argument("--psm", type=int, default=7, metavar="N",
+                        help="Tesseract 페이지 분할 모드 (기본: 7 — 자막을 줄마다 따로 넣으므로 '한 줄')")
     parser.add_argument("--line-height", type=int, default=28, metavar="N",
                         help="OCR 에 넣을 글자 한 줄 높이 (기본: 28). 큰 글자만 줄이고 키우지는 않는다. "
                              "0 을 주면 원본 크기 그대로")

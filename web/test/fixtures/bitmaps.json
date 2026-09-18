@@ -12,6 +12,11 @@
   "expected.mp4.kor.srt"
  ],
  "hasKorean": true,
+ "noteLine": {
+  "width": 240,
+  "height": 60,
+  "rgba": "note_line.rgba"
+ },
  "pgsFromSup": [
   {
    "startMs": 1000,

@@ -50,6 +50,38 @@ def korean_font() -> str | None:
     return None
 
 
+#: 음표(♪) 를 가진 글꼴. 웹판 시험이 '진짜 음표' 로 확인할 수 있게 그려 둔다.
+NOTE_FONTS = [
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+]
+
+
+def note_line() -> dict | None:
+    """'♪' 뒤에 글자가 이어지는 한 줄을 그려 둔다.
+
+    음표 찾기는 그림을 보고 하는 일이라, 손으로 대충 그린 모양이 아니라
+    진짜 글꼴이 그린 ♪ 로 시험해야 뜻이 있다. 자바스크립트 쪽에는 글꼴을
+    그릴 방법이 없으므로 여기서 만들어 RGBA 로 떠 놓는다.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    path = next((p for p in NOTE_FONTS if Path(p).exists()), None)
+    if not path:
+        return None
+
+    font = ImageFont.truetype(path, 40)
+    image = Image.new("RGBA", (240, 60), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    # 자막처럼 '밝은 글자 + 투명 배경'
+    draw.text((10, 5), "\u266a", font=font, fill=(255, 255, 255, 255))
+    draw.text((46, 5), "abc", font=font, fill=(255, 255, 255, 255))
+
+    blob = FIXTURES / "note_line.rgba"
+    blob.write_bytes(image.tobytes())
+    return {"width": image.width, "height": image.height, "rgba": blob.name}
+
+
 def dump_cues(name: str, cues) -> list[dict]:
     """해독한 그림을 RGBA 원본 그대로 떠 놓는다."""
     records = []
@@ -216,6 +248,7 @@ def main() -> None:
         "texts": texts,
         "expectedSrt": sorted(expected_srt),
         "hasKorean": font is not None,
+        "noteLine": note_line(),
         "pgsFromSup": dump_cues("pgs_sup", parse_sup(sup)),
         "pgsFromMkv": dump_cues("pgs_mkv", parse_sup(muxed_sup)),
         "vobsubFromIdx": dump_cues("vobsub_idx", parse_vobsub(idx)),

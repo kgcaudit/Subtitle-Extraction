@@ -6,8 +6,13 @@
 
 const DEFAULT_LANGUAGE = 'kor+eng';
 
-/** 자막은 여러 줄이 한 덩어리로 들어오므로 '균일한 블록'(6번)이 맞다. */
-const PAGE_SEG_MODE_SINGLE_BLOCK = '6';
+/**
+ * 자막을 줄마다 따로 넣으므로 '한 줄'(7번)이 맞다.
+ *
+ * 통째로 넣고 6번(균일한 블록)을 쓰면, 가운데 맞춘 자막의 들쭉날쭉한 여백을
+ * 인식기가 글자로 오해해 앞에 점이나 밑줄을 만들어 내고 때로는 한 줄을 흘린다.
+ */
+const PAGE_SEG_MODE_SINGLE_LINE = '7';
 
 /** 자동 선택에 쓸 표본 수. 12장이면 1초 남짓이면 끝난다. */
 const AUTO_SAMPLE_SIZE = 12;
@@ -61,7 +66,7 @@ async function createTesseractWorker(assets, language) {
     logger: () => {},
   });
   await worker.setParameters({
-    tessedit_pageseg_mode: PAGE_SEG_MODE_SINGLE_BLOCK,
+    tessedit_pageseg_mode: PAGE_SEG_MODE_SINGLE_LINE,
     preserve_interword_spaces: '1',
   });
   return worker;

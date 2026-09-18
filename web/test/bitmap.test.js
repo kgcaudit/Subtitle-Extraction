@@ -388,3 +388,61 @@ test('글자 크기 맞춤: 큰 글자만 줄이고 작은 글자는 그대로 �
   assert.equal(off.height - MARGIN * 2, big.height, '꺼 두면 원본 크기 그대로여야 합니다');
   assert.ok(TARGET_LINE_HEIGHT > 0);
 });
+
+/** 기준자료로 떠 놓은 RGBA 그림을 읽는다. */
+function rgbaFixture(record) {
+  const bytes = readFileSync(fixture(record.rgba));
+  return { width: record.width, height: record.height, data: new Uint8ClampedArray(bytes) };
+}
+
+/** 앞쪽 글자를 다른 것으로 바꾼 그림. 음표 자리에 네모를 두는 식으로 쓴다. */
+function replaceLeading(image, drawn) {
+  const data = new Uint8ClampedArray(image.data);
+  // 앞의 40픽셀을 지우고
+  for (let y = 0; y < image.height; y += 1) {
+    for (let x = 0; x < 40; x += 1) data[(y * image.width + x) * 4 + 3] = 0;
+  }
+  // 그 자리에 주어진 모양을 그린다
+  drawn(data, image.width, image.height);
+  return { width: image.width, height: image.height, data };
+}
+
+test('줄 가르기: 글자 줄마다 하나씩 나눈다', async () => {
+  const { prepareLines } = await import('../src/bitmapPrep.js');
+  for (const count of [1, 2, 3]) {
+    const lines = prepareLines(textLike(30, 14, count), { straighten: false });
+    assert.equal(lines.length, count, `${count}줄짜리를 ${lines.length}개로 나눴습니다`);
+    for (const line of lines) assert.equal(line.prefix, '', '음표가 없는데 붙었습니다');
+  }
+});
+
+test('음표 찾기: 진짜 ♪ 는 찾아 떼어 내고, 글자는 건드리지 않는다', async (t) => {
+  // 손으로 그린 흉내가 아니라 글꼴이 그린 진짜 ♪ 로 시험한다.
+  // (기준자료는 `python3 tests/make_web_fixtures.py` 가 만든다)
+  if (!golden.noteLine) return t.skip('♪ 를 가진 글꼴이 없어 만들지 못한 자료입니다');
+  const { prepareLines } = await import('../src/bitmapPrep.js');
+
+  const line = rgbaFixture(golden.noteLine);
+  const found = prepareLines(line, { straighten: false });
+  assert.equal(found.length, 1, '한 줄이어야 합니다');
+  assert.equal(found[0].prefix, '♪', '음표를 못 찾았습니다');
+
+  // 음표 자리에 네모를 두면 음표로 보면 안 된다.
+  const block = replaceLeading(line, (data, width, height) => {
+    for (let y = 8; y < height - 8; y += 1) {
+      for (let x = 10; x < 34; x += 1) {
+        const at = (y * width + x) * 4;
+        data[at] = data[at + 1] = data[at + 2] = 255;
+        data[at + 3] = 255;
+      }
+    }
+  });
+  assert.equal(
+    prepareLines(block, { straighten: false })[0].prefix,
+    '',
+    '글자를 음표로 잘못 봤습니다',
+  );
+
+  // 꺼 두면 찾지 않는다.
+  assert.equal(prepareLines(line, { straighten: false, findNotes: false })[0].prefix, '');
+});

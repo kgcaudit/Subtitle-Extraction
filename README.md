@@ -2,6 +2,8 @@
 
 영상 파일 안에 들어 있는 **자막 트랙을 SRT 파일로** 뽑아냅니다.
 자막이 이미지(PGS·VobSub)로 들어 있으면 **OCR 로 글자로 바꿔서** SRT 를 만듭니다.
+글자 줄마다 잘라 읽고, 기울어진 글자는 바로 세우며, 노래 자막의 음표(♪)는
+그림에서 찾아 되살립니다.
 
 ```
 $ subex movie.mkv
@@ -78,7 +80,7 @@ subex bluray.sup --ocr-lang kor      # .sup 파일을 바로
 | `-o, --output FILE` | 출력 파일 (트랙 하나일 때) |
 | `--outdir DIR` | 출력 폴더 |
 | `--ocr-lang LANGS` | OCR 언어. 기본 `kor+eng` |
-| `--psm N` | Tesseract 페이지 분할 모드. 기본 `6` |
+| `--psm N` | Tesseract 페이지 분할 모드. 기본 `7` (자막을 줄마다 따로 넣으므로 '한 줄') |
 | `--line-height N` | OCR 에 넣을 글자 한 줄 높이. 기본 `28` (큰 글자만 줄이고 키우지는 않는다). `0` 이면 원본 크기 그대로 |
 | `-j, --jobs N` | OCR 동시 실행 개수. 기본은 CPU 수 |
 | `--encoding ENC` | 출력 인코딩. 기본 `utf-8` |

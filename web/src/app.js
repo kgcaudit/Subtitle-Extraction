@@ -12,7 +12,7 @@ import {
 } from './extract.js';
 import { decodeSupFile } from './pgs.js';
 import { classify, resolveSource } from './source.js';
-import { prepareForOcr } from './bitmapPrep.js';
+import { prepareLines } from './bitmapPrep.js';
 import { OcrPool, pickLanguage } from './ocr.js';
 import { tidy } from './postprocess.js';
 import { render } from './srt.js';
@@ -328,18 +328,27 @@ async function startOcr(language, images) {
   return OcrPool.create(assets, { language: chosen });
 }
 
-/** 그림 자막을 인식기에 넣을 수 있게 다듬는다. 어느 자막의 것인지도 함께 기억한다. */
+/**
+ * 그림 자막을 인식기에 넣을 수 있게 다듬는다.
+ *
+ * 자막 한 덩이가 여러 줄일 수 있고 줄마다 따로 인식하므로, 줄을 한 줄로 펴서
+ * 넘기고 어느 자막의 몇 번째 줄인지를 함께 기억해 둔다.
+ */
 function prepareImages(cues, targetLineHeight) {
+  const options = targetLineHeight === undefined ? {} : { targetLineHeight };
   const images = [];
-  const index = [];
+  const owners = [];      // images[i] 가 어느 자막의 것인지
+  const prefixes = [];    // 그림에서 찾아낸 음표(♪) 등
+
   cues.forEach((cue, position) => {
     if (!cue.image) return;
-    const image = prepareForOcr(cue.image, targetLineHeight === undefined ? {} : { targetLineHeight });
-    if (!image) return;
-    images.push(image);
-    index.push(position);
+    for (const line of prepareLines(cue.image, options)) {
+      images.push(line.image);
+      owners.push(position);
+      prefixes.push(line.prefix);
+    }
   });
-  return { images, index };
+  return { images, owners, prefixes };
 }
 
 async function recognizeCues(cues, prepared, pool, label) {
@@ -350,11 +359,17 @@ async function recognizeCues(cues, prepared, pool, label) {
   });
   showProgress(null);
 
-  const result = cues.map((cue) => ({ ...cue }));
-  prepared.index.forEach((position, order) => {
-    result[position].text = texts[order];
+  // 줄 단위로 읽은 결과를 다시 자막 덩이별로 모은다.
+  const parts = cues.map(() => []);
+  prepared.owners.forEach((position, order) => {
+    const text = (texts[order] ?? '').trim();
+    const prefix = prepared.prefixes[order];
+    if (text || prefix) parts[position].push(prefix + text);
   });
-  return result;
+
+  return cues.map((cue, position) =>
+    cue.image ? { ...cue, text: parts[position].join('\n') } : { ...cue },
+  );
 }
 
 // --- 붙이기 ---------------------------------------------------------------

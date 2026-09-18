@@ -38,9 +38,122 @@ export const TARGET_LINE_HEIGHT = 28;
  */
 const RESIZE_ABOVE = 40;
 
-export function prepareForOcr(
+/** 줄을 가를 때, 잉크가 이 정도는 있어야 글자 줄로 본다(가장 진한 줄 대비). */
+const BAND_INK = 0.08;
+
+/**
+ * 잘라 낸 줄 위아래에 줄 높이의 이만큼을 남긴다.
+ *
+ * 딱 붙여 자르면 인식기가 글자의 위아래 기준선을 못 잡아 오히려 틀린다
+ * (실측: 기준자료에서 English → Enalish). 반대로 너무 넉넉하면 옆 줄이
+ * 딸려 들어와 크게 망가진다(0.25 부터). 0.12~0.18 이 평평하게 좋다.
+ */
+const BAND_PAD = 0.15;
+
+/**
+ * 음표(♪) 를 알아보는 데 쓸 본. 16x24 회색 그림을 base64 로 담았다.
+ *
+ * 인식기의 한국어·영어 자료에는 ♪ 가 아예 없다(글자 목록 1158자 / 112자에 없음).
+ * 그래서 인식기는 ♪ 를 죽었다 깨어나도 못 내놓는다. 실제로 영화 한 편에서
+ * 한 번도 못 읽었고, 대신 》 ^ _ > 같은 엉뚱한 글자를 내거나 그냥 흘렸다.
+ * 그러니 글자로 고칠 수가 없고, 그림에서 직접 찾아내는 수밖에 없다.
+ */
+const NOTE_TEMPLATE_BASE64 =
+  'AAAAAAAAAJPlYgAAAAAAAAAAAAAAAACT5mUBAAAAAAAAAAAAAAAAk/SjHgEAAAAAAAAAAAAAAJP69ZgZAAAAAAAA' +
+  'AAAAAACT+v/1jRMAAAAAAAAAAAAAk/r///aACQAAAAAAAAAAAJP5+/7/6W0IAAAAAAAAAACT7a2p8f/bSwIAAAAA' +
+  'AAAAk+VjE2zo/qocAAAAAAAAAJPlYgALePjzSwAAAAAAAACT5WIAACO9/48AAAAAAAAAk+ViAAAIfP3AAAAAAAAA' +
+  'AJPlYgAAAF3y1gAAAAAAAACT5WIAAABX7NAAAAAAAAAAk+ViAAAAYfWtAAAAAAAAAJPlYgAACH/6awAAAAAAAACT' +
+  '5WIAAByyzCwAAAceLzEnn+ViAAJE1WMHAB12x/L33ubnWwAEPlkNACms9P//////3UAAAAAAAACO/f///////bsS' +
+  'AAAAAAAA1P///////+RTAAAAAAAAALz//////dpnCgAAAAAAAABGvvDz1JA+CAAAAAAAAAAA';
+const NOTE_WIDTH = 16;
+const NOTE_HEIGHT = 24;
+
+/**
+ * 본과 얼마나 닮아야 음표로 볼지. 실측으로 두 무리가 확실히 갈린다.
+ * 음표 0.49~0.74 / 한글 -0.14~0.27 / 대시(-) -0.09~-0.03 — 그 사이에 둔다.
+ */
+const NOTE_MATCH = 0.38;
+
+let noteTemplate = null;
+function template() {
+  if (noteTemplate) return noteTemplate;
+  const raw = atob(NOTE_TEMPLATE_BASE64);
+  noteTemplate = new Float64Array(raw.length);
+  for (let i = 0; i < raw.length; i += 1) noteTemplate[i] = raw.charCodeAt(i) / 255;
+  return noteTemplate;
+}
+
+export function prepareForOcr(image, options = {}) {
+  const prepared = toGrayscale(image, options);
+  if (!prepared) return null;
+  return withMargin(prepared, options.margin ?? 16);
+}
+
+/** 회색 그림에 흰 여백을 둘러 RGBA 로 내놓는다. 인식기에 넣을 마지막 모양이다. */
+function withMargin({ data, width, height }, margin) {
+  const outWidth = width + margin * 2;
+  const outHeight = height + margin * 2;
+  const out = new Uint8ClampedArray(outWidth * outHeight * 4).fill(255);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const value = data[y * width + x];
+      const base = ((y + margin) * outWidth + (x + margin)) * 4;
+      out[base] = value;
+      out[base + 1] = value;
+      out[base + 2] = value;
+      out[base + 3] = 255;
+    }
+  }
+  return { width: outWidth, height: outHeight, data: out };
+}
+
+/**
+ * 자막 한 덩이를 '글자 줄' 별로 잘라 인식기에 넣을 모양으로 만든다.
+ *
+ * 통째로 넣으면 인식기가 줄 배치를 제 나름대로 해석하면서, 가운데 맞춘
+ * 자막의 들쭉날쭉한 여백을 글자로 오해해 앞에 점이나 밑줄을 만들어 내고
+ * 때로는 한 줄을 통째로 흘린다. 줄마다 따로 넣으면 그 일이 없어진다.
+ * (실측: 정답지 64줄에서 오류 21자 → 8자)
+ *
+ * @returns [{ image, prefix }] - prefix 는 그림에서 찾아낸 음표(♪) 등
+ */
+export function prepareLines(image, options = {}) {
+  const { margin = 16, findNotes = true } = options;
+  const whole = toGrayscale(image, options);
+  if (!whole) return [];
+
+  const bands = inkBands(whole.data, whole.width, whole.height);
+  const lines = [];
+
+  bands.forEach(([start, end], index) => {
+    let pad = Math.max(2, Math.round((end - start) * BAND_PAD));
+    // 옆 줄까지 넘어가지 않도록, 이웃과의 틈의 절반을 넘지 않게 한다.
+    if (index > 0) pad = Math.min(pad, Math.max(1, (start - bands[index - 1][1]) >> 1));
+    if (index + 1 < bands.length) pad = Math.min(pad, Math.max(1, (bands[index + 1][0] - end) >> 1));
+
+    const top = Math.max(0, start - pad);
+    const bottom = Math.min(whole.height, end + pad);
+    const height = bottom - top;
+    const strip = new Uint8ClampedArray(whole.width * height);
+    strip.set(whole.data.subarray(top * whole.width, bottom * whole.width));
+
+    let piece = { data: strip, width: whole.width, height };
+    let prefix = '';
+    if (findNotes) {
+      const { line, note } = stripLeadingNote(piece);
+      piece = line;
+      if (note) prefix = '♪';
+    }
+    lines.push({ image: withMargin(piece, margin), prefix });
+  });
+
+  return lines;
+}
+
+/** 자막 그림을 '흰 바탕 검은 글자' 회색 그림으로. 여백은 붙이지 않는다. */
+function toGrayscale(
   image,
-  { targetLineHeight = TARGET_LINE_HEIGHT, margin = 16, straighten = true } = {},
+  { targetLineHeight = TARGET_LINE_HEIGHT, straighten = true } = {},
 ) {
   const { width, height, data } = image;
   if (!width || !height) return null;
@@ -78,23 +191,7 @@ export function prepareForOcr(
     }
   }
 
-  const scaled = deslant(fitted, slant);
-
-  // 인식기는 글자가 가장자리에 붙어 있으면 잘 못 읽는다. 흰 여백을 둘러 준다.
-  const outWidth = scaled.width + margin * 2;
-  const outHeight = scaled.height + margin * 2;
-  const out = new Uint8ClampedArray(outWidth * outHeight * 4).fill(255);
-  for (let y = 0; y < scaled.height; y += 1) {
-    for (let x = 0; x < scaled.width; x += 1) {
-      const value = scaled.data[y * scaled.width + x];
-      const base = ((y + margin) * outWidth + (x + margin)) * 4;
-      out[base] = value;
-      out[base + 1] = value;
-      out[base + 2] = value;
-      out[base + 3] = 255;
-    }
-  }
-  return { width: outWidth, height: outHeight, data: out };
+  return deslant(fitted, slant);
 }
 
 /** 겹선형 보간. 자막 글자는 부드럽게 키워야 인식이 잘 된다. */
@@ -230,4 +327,133 @@ export function textLineHeight(gray, width, height) {
   kept.sort((a, b) => a - b);
   const middle = kept.length >> 1;
   return kept.length % 2 ? kept[middle] : (kept[middle - 1] + kept[middle]) / 2;
+}
+
+/** 잉크가 있는 가로 띠(글자 줄)의 위·아래 위치를 찾는다. */
+export function inkBands(gray, width, height) {
+  const rows = new Float64Array(height);
+  let peak = 0;
+  for (let y = 0; y < height; y += 1) {
+    let sum = 0;
+    const row = y * width;
+    for (let x = 0; x < width; x += 1) sum += 255 - gray[row + x];
+    rows[y] = sum;
+    if (sum > peak) peak = sum;
+  }
+  if (peak <= 0) return [[0, height]];
+
+  const limit = peak * BAND_INK;
+  const found = [];
+  let start = null;
+  for (let y = 0; y < height; y += 1) {
+    if (rows[y] > limit && start === null) start = y;
+    else if (rows[y] <= limit && start !== null) {
+      found.push([start, y]);
+      start = null;
+    }
+  }
+  if (start !== null) found.push([start, height]);
+
+  const kept = found.filter(([a, b]) => b - a >= 8);
+  if (!kept.length) return [[0, height]];
+
+  // 받침이 떨어져 보여 끊긴 것은 도로 붙인다.
+  const merged = [kept[0]];
+  for (const [a, b] of kept.slice(1)) {
+    if (a - merged[merged.length - 1][1] <= 4) merged[merged.length - 1][1] = b;
+    else merged.push([a, b]);
+  }
+  return merged;
+}
+
+function correlation(values, tpl) {
+  let meanA = 0;
+  let meanB = 0;
+  for (let i = 0; i < values.length; i += 1) {
+    meanA += values[i];
+    meanB += tpl[i];
+  }
+  meanA /= values.length;
+  meanB /= values.length;
+
+  let top = 0;
+  let sumA = 0;
+  let sumB = 0;
+  for (let i = 0; i < values.length; i += 1) {
+    const a = values[i] - meanA;
+    const b = tpl[i] - meanB;
+    top += a * b;
+    sumA += a * a;
+    sumB += b * b;
+  }
+  const spread = Math.sqrt(sumA * sumB);
+  return spread ? top / spread : 0;
+}
+
+/**
+ * 줄 맨 앞이 음표면 잘라 내고, 잘라 냈는지를 함께 돌려준다.
+ *
+ * 맨 앞 덩어리를 같은 크기로 맞춰 본과 견준다. 인식기가 ♪ 를 못 읽으니
+ * 글자가 아니라 그림에서 찾아야 하고, 찾았으면 그림에서 지워야 한다.
+ * 안 지우면 인식기가 그 자리에 엉뚱한 글자를 만들어 낸다.
+ */
+export function stripLeadingNote(line) {
+  const { data, width, height } = line;
+  const columns = new Float64Array(width);
+  let peak = 0;
+  for (let x = 0; x < width; x += 1) {
+    let sum = 0;
+    for (let y = 0; y < height; y += 1) sum += 255 - data[y * width + x];
+    columns[x] = sum;
+    if (sum > peak) peak = sum;
+  }
+  if (peak <= 0) return { line, note: false };
+
+  const limit = peak * 0.02;
+  let first = -1;
+  for (let x = 0; x < width; x += 1) if (columns[x] > limit) { first = x; break; }
+  if (first < 0) return { line, note: false };
+
+  // 빈칸이 충분히 이어지면 거기서 첫 덩어리가 끝난 것으로 본다.
+  const blankNeeded = Math.max(3, Math.round(height * 0.12));
+  let blank = 0;
+  let end = width;
+  for (let x = first; x < width; x += 1) {
+    if (columns[x] <= limit) {
+      blank += 1;
+      if (blank >= blankNeeded) { end = x - blank + 1; break; }
+    } else blank = 0;
+  }
+
+  // 덩어리를 잉크가 있는 만큼만 잘라 본과 같은 크기로 맞춘다.
+  let top = height;
+  let bottom = -1;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = first; x < end; x += 1) {
+      if (255 - data[y * width + x] > 0) { if (y < top) top = y; if (y > bottom) bottom = y; break; }
+    }
+  }
+  if (bottom < top) return { line, note: false };
+
+  const headWidth = end - first;
+  const headHeight = bottom - top + 1;
+  const head = new Uint8ClampedArray(headWidth * headHeight);
+  for (let y = 0; y < headHeight; y += 1) {
+    for (let x = 0; x < headWidth; x += 1) {
+      head[y * headWidth + x] = data[(top + y) * width + first + x];
+    }
+  }
+  const small = resize(head, headWidth, headHeight, NOTE_WIDTH, NOTE_HEIGHT);
+  const values = new Float64Array(small.data.length);
+  for (let i = 0; i < values.length; i += 1) values[i] = (255 - small.data[i]) / 255;
+
+  if (correlation(values, template()) < NOTE_MATCH) return { line, note: false };
+
+  const restWidth = width - end;
+  if (restWidth <= 4) return { line, note: true };
+  const rest = new Uint8ClampedArray(restWidth * height);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < restWidth; x += 1) rest[y * restWidth + x] = data[y * width + end + x];
+  }
+  return { line: { data: rest, width: restWidth, height }, note: true };
 }

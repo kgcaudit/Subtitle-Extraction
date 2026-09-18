@@ -22,7 +22,7 @@ import {
 } from '../src/extract.js';
 import { decodeSupFile } from '../src/pgs.js';
 import { classify, resolveSource } from '../src/source.js';
-import { prepareForOcr } from '../src/bitmapPrep.js';
+import { prepareLines } from '../src/bitmapPrep.js';
 import { OcrPool, pickLanguage } from '../src/ocr.js';
 import { tidy } from '../src/postprocess.js';
 import { render } from '../src/srt.js';
@@ -84,7 +84,18 @@ window.runVerify = async function runVerify({ language = 'kor+eng', dumpCount = 
       let textCues = cues;
 
       if (cues.some((cue) => cue.image)) {
-        const images = cues.filter((cue) => cue.image).map((cue) => prepareForOcr(cue.image));
+        // 줄마다 따로 인식한다. 어느 자막의 줄인지와 음표를 함께 기억한다.
+        const images = [];
+        const owners = [];
+        const prefixes = [];
+        cues.forEach((cue, position) => {
+          if (!cue.image) return;
+          for (const line of prepareLines(cue.image)) {
+            images.push(line.image);
+            owners.push(position);
+            prefixes.push(line.prefix);
+          }
+        });
         if (!pool) {
           const started = await start(language, images);
           pool = started.pool;
@@ -106,8 +117,14 @@ window.runVerify = async function runVerify({ language = 'kor+eng', dumpCount = 
         const texts = await pool.recognizeAll(images);
         ocrMs = performance.now() - ocrStart;
 
-        let order = 0;
-        textCues = cues.map((cue) => (cue.image ? { ...cue, text: texts[order++] } : cue));
+        const parts = cues.map(() => []);
+        owners.forEach((position, order) => {
+          const text = (texts[order] ?? '').trim();
+          if (text || prefixes[order]) parts[position].push(prefixes[order] + text);
+        });
+        textCues = cues.map((cue, position) =>
+          cue.image ? { ...cue, text: parts[position].join('\n') } : cue,
+        );
       }
 
       const tidied = tidy(

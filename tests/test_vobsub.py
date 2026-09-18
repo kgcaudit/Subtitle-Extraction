@@ -123,3 +123,49 @@ def test_large_text_is_shrunk_small_text_is_not():
     assert prepare_for_ocr(small, margin=0, straighten=False).size == small.size, (
         "작은 글자는 그대로여야 한다"
     )
+
+
+def test_lines_are_split_and_music_note_is_recovered():
+    """자막은 줄마다 갈라 인식기에 넣고, 음표(♪)는 그림에서 찾아 되살린다.
+
+    인식기의 글자 목록에 ♪ 가 아예 없어서(한국어 1158자·영어 112자) 글자로는
+    절대 못 얻는다. 실제 영화 한 편에서 한 번도 못 읽었고 대신 》 ^ _ 같은
+    엉뚱한 글자가 나왔다. 그래서 그림에서 직접 찾는다.
+    """
+    from pathlib import Path
+
+    from PIL import Image, ImageDraw, ImageFont
+
+    from subex.bitmap import prepare_lines
+
+    fonts = [
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ]
+    path = next((p for p in fonts if Path(p).exists()), None)
+    if path is None:
+        pytest.skip("♪ 를 가진 글꼴이 없습니다")
+
+    font = ImageFont.truetype(path, 40)
+
+    def draw(lines: list[str]) -> Image.Image:
+        image = Image.new("RGBA", (260, 60 * len(lines) + 20), (0, 0, 0, 0))
+        pen = ImageDraw.Draw(image)
+        for index, line in enumerate(lines):
+            pen.text((10, 10 + index * 60), line, font=font, fill=(255, 255, 255, 255))
+        return image
+
+    # 줄 수만큼 갈린다.
+    for count in (1, 2, 3):
+        prepared = prepare_lines(draw(["abc"] * count), straighten=False)
+        assert len(prepared) == count
+        assert all(line.prefix == "" for line in prepared)
+
+    # 음표는 찾아서 떼어 내고 앞에 붙일 글자로 돌려준다.
+    with_note = prepare_lines(draw(["♪ abc"]), straighten=False)
+    assert len(with_note) == 1
+    assert with_note[0].prefix == "♪"
+
+    # 그냥 글자는 음표로 보면 안 된다.
+    assert prepare_lines(draw(["abc"]), straighten=False)[0].prefix == ""
+    assert prepare_lines(draw(["♪ abc"]), straighten=False, find_notes=False)[0].prefix == ""
