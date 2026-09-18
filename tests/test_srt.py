@@ -51,18 +51,31 @@ def test_parse_keeps_text_ending_with_digits():
     assert [cue.text for cue in parse_srt(source)] == ["Mixed 한글 and English 2026", "2026", "끝"]
 
 
-def test_dialogue_dash_gets_its_space_back():
-    """줄 첫머리의 대화 표시(-) 뒤 띄어쓰기를 되살린다.
+def test_dialogue_dash_spacing_follows_the_track_convention():
+    """대화 표시(-) 뒤 띄어쓰기는 그 자막의 관습을 따른다.
 
-    인식기가 가끔 흘린다(실측: '-' 로 시작하는 185줄 중 15줄). 그림에는
-    띄어쓰기가 있으니 되살리는 것이 맞다. 다만 음수(-5도)는 건드리지 않는다.
+    인식기가 가끔 띄어쓰기를 흘린다. 다만 애초에 붙여 쓰는 자막도 있어서
+    무조건 띄우면 그런 자막을 원본과 다르게 만든다(실측: 한쪽은 184줄 중
+    179줄이 띄어쓰고, 다른 쪽은 49줄 모두 붙여 쓴다). 그래서 트랙 전체를
+    보고 소수 쪽만 맞춘다.
     """
-    from subex.postprocess import clean_text
+    from subex.postprocess import tidy
+    from subex.srt import Cue
 
-    assert clean_text("-응") == "- 응"
-    assert clean_text("-네\n- 그래") == "- 네\n- 그래"
-    assert clean_text("—네") == "— 네"
-    assert clean_text("- 응") == "- 응", "이미 띄어져 있으면 그대로"
-    assert clean_text("-5도 아래") == "-5도 아래", "음수는 건드리지 않는다"
-    assert clean_text("-") == "-", "대시만 있으면 그대로"
-    assert clean_text("그-응") == "그-응", "줄 첫머리가 아니면 건드리지 않는다"
+    def run(texts):
+        cues = [Cue(i * 1000, (i + 1) * 1000 - 1, t) for i, t in enumerate(texts)]
+        return [cue.text for cue in tidy(cues)]
+
+    # 대부분 띄어쓰는 자막 → 붙은 것도 띄운다.
+    spaced = ["- 그래요", "- 가자", "- 응", "- 네", "-음", "- 좋아", "- 알았어", "- 그럼"]
+    assert run(spaced)[4] == "- 음"
+
+    # 모두 붙여 쓰는 자막 → 그대로 둔다.
+    tight = ["-안 돼요", "-로지타!", "-네", "-그래"]
+    assert run(tight) == tight
+
+    # 음수는 어느 쪽이든 건드리지 않는다.
+    assert run(["- 그래요", "- 가자", "- 응", "-5도 아래"])[3] == "-5도 아래"
+
+    # 대시가 아예 없으면 아무 일도 없다.
+    assert run(["그래요", "가자"]) == ["그래요", "가자"]

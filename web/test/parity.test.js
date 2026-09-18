@@ -51,21 +51,24 @@ test('파이썬판과 결과가 같다', () => {
   }
 });
 
-test('대화 표시(-) 뒤 띄어쓰기를 되살리는 규칙이 파이썬판과 같다', async () => {
-  const { cleanText } = await import('../src/postprocess.js');
+test('대화 표시(-) 띄어쓰기 규칙이 파이썬판과 같다 — 자막의 관습을 따른다', async () => {
+  const { tidy } = await import('../src/postprocess.js');
 
-  // 인식기가 가끔 흘린다(실측: '-' 로 시작하는 185줄 중 15줄).
-  // 그림에는 띄어쓰기가 있으니 되살리는 것이 맞다. 음수는 건드리지 않는다.
-  const cases = [
-    ['-응', '- 응'],
-    ['-네\n- 그래', '- 네\n- 그래'],
-    ['—네', '— 네'],
-    ['- 응', '- 응'],
-    ['-5도 아래', '-5도 아래'],
-    ['-', '-'],
-    ['그-응', '그-응'],
-  ];
-  for (const [source, expected] of cases) {
-    assert.equal(cleanText(source), expected, `${JSON.stringify(source)} 처리 결과`);
-  }
+  const run = (texts) =>
+    tidy(texts.map((text, i) => ({ startMs: i * 1000, endMs: (i + 1) * 1000 - 1, text })))
+      .map((cue) => cue.text);
+
+  // 대부분 띄어쓰는 자막 → 붙은 것도 띄운다.
+  const spaced = ['- 그래요', '- 가자', '- 응', '- 네', '-음', '- 좋아', '- 알았어', '- 그럼'];
+  assert.equal(run(spaced)[4], '- 음');
+
+  // 모두 붙여 쓰는 자막 → 그대로 둔다 (실측: 어떤 자막은 49줄 모두 붙여 쓴다).
+  const tight = ['-안 돼요', '-로지타!', '-네', '-그래'];
+  assert.deepEqual(run(tight), tight);
+
+  // 음수는 어느 쪽이든 건드리지 않는다.
+  assert.equal(run(['- 그래요', '- 가자', '- 응', '-5도 아래'])[3], '-5도 아래');
+
+  // 대시가 아예 없으면 아무 일도 없다.
+  assert.deepEqual(run(['그래요', '가자']), ['그래요', '가자']);
 });
