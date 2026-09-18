@@ -119,6 +119,50 @@ subex movie.mkv --ocr-lang kor       # 인식 언어를 직접 지정 (기본은
                           SRT
 ```
 
+### 둘을 가르는 기준
+
+자막 트랙에는 규격상 **코덱 이름표**가 붙어 있습니다. 알맹이를 열어 볼 필요 없이
+이름표만 보면 확정입니다.
+
+```python
+BITMAP_CODECS = {
+    "hdmv_pgs_subtitle",   # 블루레이
+    "dvd_subtitle",        # DVD (VobSub)
+    "dvb_subtitle",        # 방송
+    "dvb_teletext",        # 문자다중방송
+    "xsub",                # DivX
+}
+```
+
+`ffprobe` 가 알려 주는 `codec_name` 이 이 목록에 있으면 이미지 자막, 없으면 텍스트
+자막입니다. 갈림길은 `subex/extract.py` 의 한 줄입니다.
+
+```python
+if not track.is_bitmap:
+    cues = _shift(extract_text_track(source, track, workdir), offset)
+    return tidy(cues, ...)          # ← 여기서 끝. 아래로 내려가지 않는다
+
+bitmap_cues = _read_bitmap_cues(source, track, workdir)
+...
+engine = TesseractEngine(...)       # OCR 엔진은 이 아래에서만 만들어진다
+```
+
+**텍스트 자막은 OCR 엔진을 만들지도 않고 함수를 빠져나갑니다.** `tesseract` 를
+지운 채로 돌려 보면 `.srt`·`.smi` 는 그대로 나오고 `.sup` 만 실패합니다.
+
+자막만 든 파일(`.sup`, `.idx`+`.sub`)은 트랙이 아니므로 **파일 앞머리 몇 바이트**로
+가립니다 — `PG` 면 블루레이 자막, `00 00 01 BA` 면 `.sub` 입니다.
+
+| | 텍스트 자막 | 이미지 자막 |
+|---|---|---|
+| 대표 형식 | SubRip, ASS/SSA, WebVTT, SAMI | PGS(블루레이), VobSub(DVD) |
+| 하는 일 | 형식 변환 | **그림 복원 + OCR** |
+| 자막 1,600줄 | **0.1초 미만** | 30~60초 |
+| 정확도 | 100% (원본 그대로) | 98.4~99.8% |
+| tesseract | **불필요** | 필수 |
+
+### 이미지 자막의 전처리
+
 이미지 자막의 OCR 전처리는 자막 비트맵이 대개 *밝은 글자 + 어두운 테두리 + 투명 배경*
 이라는 점을 이용합니다. 검은 배경에 합성하면 글자만 밝게 남고, 그걸 반전시키면
 테두리와 배경이 함께 흰색으로 사라지면서 **흰 바탕 위 검은 글자**만 남습니다.
