@@ -12,7 +12,7 @@ from subex.pgs import parse_sup
 from subex.postprocess import tidy
 from subex.probe import SubtitleTrack, presentation_offset_ms
 from subex.srt import Cue
-from subex.text_track import extract_text_track
+from subex.text_track import extract_text_track, read_text_tracks
 from subex.vobsub import parse_vobsub
 
 __all__ = ["ExtractOptions", "extract_track"]
@@ -95,6 +95,29 @@ def _shift(cues: list[Cue], offset: int) -> list[Cue]:
         cue.start -= offset
         cue.end -= offset
     return cues
+
+
+def extract_text_tracks(source, tracks, workdir: Path,
+                        options: ExtractOptions | None = None) -> dict[int, list[Cue]]:
+    """글자 자막 트랙 여러 개를 **파일을 한 번만 읽고** 꺼낸다.
+
+    트랙마다 extract_track 을 부르면 그때마다 영상 파일을 처음부터 다시 읽는다.
+    ffmpeg 은 출력 여러 개를 한 번에 받으므로 한 번 읽으며 다 뽑을 수 있다
+    (mkvextract 도 같은 방식이다). '재생 0초' 기준도 한 번만 잰다.
+
+    돌려주는 값은 {스트림 번호: 다듬은 Cue 목록}.
+    """
+    options = options or ExtractOptions()
+    source = Path(source)
+    tracks = [track for track in tracks if not track.is_bitmap]
+    if not tracks:
+        return {}
+
+    offset = _presentation_offset(source)
+    return {
+        index: tidy(_shift(cues, offset), strip_styling=options.strip_styling)
+        for index, cues in read_text_tracks(source, tracks, workdir).items()
+    }
 
 
 def extract_track(source, track: SubtitleTrack, workdir: Path,

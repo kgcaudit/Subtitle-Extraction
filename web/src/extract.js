@@ -6,7 +6,7 @@
 // 여기서는 '다듬기' 직전까지, 즉 시각과 내용(글자 또는 그림)을 맞춰 내놓는다.
 // 문자 인식은 브라우저에서만 할 수 있으므로 바깥에서 붙인다.
 
-import { probe, readSamples } from './container.js';
+import { probe, readSamples, readSamplesForAll } from './container.js';
 import { PgsDecoder, splitSampleSegments } from './pgs.js';
 import { readAscii, u16, u32 } from './reader.js';
 import { decodeSpu, parseIdxPalette } from './vobsub.js';
@@ -98,6 +98,27 @@ export async function listTracks(file, options) {
  */
 export async function readTrackCues(file, track, container, context, onProgress) {
   const { samples } = await readSamples(file, track, container, context, onProgress);
+  return cuesFromSamples(samples, track);
+}
+
+/**
+ * 고른 트랙들의 조각을 **한 번에** 읽는다. 못 하는 형식이면 null.
+ *
+ * 트랙마다 따로 읽으면 MKV 는 파일을 트랙 수만큼 반복해서 읽는다(실측: 83MB
+ * 파일에서 트랙 3개를 뽑으면 파일의 299% 를 읽었다). 한 번에 읽으면 100% 다.
+ *
+ * @returns Map<자막 순번, 자막 목록> 또는 null
+ */
+export async function readAllTrackCues(file, tracks, container, context, onProgress) {
+  const byIndex = await readSamplesForAll(file, tracks, container, context, onProgress);
+  if (!byIndex) return null;
+  return new Map(tracks.map((track) => [
+    track.subtitleIndex,
+    cuesFromSamples(byIndex.get(track.subtitleIndex)?.samples ?? [], track),
+  ]));
+}
+
+function cuesFromSamples(samples, track) {
   if (!samples.length) return [];
 
   const decoded = decodeSamples(samples, track);

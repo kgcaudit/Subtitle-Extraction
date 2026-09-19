@@ -3,7 +3,7 @@
 // 바깥(extract.js)에서는 컨테이너가 MKV 인지 MP4 인지 신경 쓰지 않는다.
 // 어느 쪽이든 '자막 트랙 목록'과 '트랙의 샘플 목록'만 얻으면 되기 때문이다.
 
-import { listSubtitleTracks, readSubtitleSamples } from './mkv.js';
+import { listSubtitleTracks, readSamplesForTracks, readSubtitleSamples } from './mkv.js';
 import { looksLikeMp4, probeMp4, readMp4Samples } from './mp4.js';
 import { readAscii } from './reader.js';
 import { MIME } from './mime.js';
@@ -100,6 +100,23 @@ export async function readSamples(file, track, container, context, onProgress) {
     return readMp4Samples(file, track, onProgress);
   }
   return readSubtitleSamples(file, track.trackNumber, context.timestampScale, onProgress);
+}
+
+/**
+ * 여러 트랙의 조각을 **파일을 한 번만 지나가며** 읽는다. 못 하는 형식이면 null.
+ *
+ * MKV 만 이득이 있다. MP4 는 원래 표를 보고 제 자리만 집어 읽고, DVD 자막(.idx)도
+ * 스트림마다 자리표가 따로 있어 트랙을 늘려도 남의 자리를 읽지 않는다.
+ *
+ * @returns Map<자막 순번, { samples }> 또는 null
+ */
+export async function readSamplesForAll(file, tracks, container, context, onProgress) {
+  if (container !== 'mkv' || tracks.length < 2) return null;
+
+  const byNumber = await readSamplesForTracks(
+    file, tracks.map((track) => track.trackNumber), context.timestampScale, onProgress,
+  );
+  return new Map(tracks.map((track) => [track.subtitleIndex, byNumber.get(track.trackNumber)]));
 }
 
 export { looksLikeMp4 };

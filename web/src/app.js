@@ -7,6 +7,7 @@ import {
   isBitmap,
   isSupported,
   listTracks,
+  readAllTrackCues,
   readTrackCues,
   uniqueFileName,
 } from './extract.js';
@@ -254,18 +255,36 @@ async function extractSelected() {
   const settings = ocrSettings();
   let pool = null;
 
+  // 여러 트랙을 고르면 파일을 한 번만 지나가며 다 읽는다. 트랙마다 따로 읽으면
+  // MKV 는 파일을 트랙 수만큼 반복해서 읽는다(실측: 트랙 3개면 파일의 299%).
+  let readTogether = null;
+  if (chosen.length > 1 && !chosen.some((track) => track.standaloneSup)) {
+    say(`자막 ${chosen.length}개를 한 번에 꺼내는 중…`);
+    readTogether = await readAllTrackCues(
+      state.file, chosen, state.container, state.context,
+      (read, total) => showProgress(total ? read / total : null),
+    );
+    showProgress(null);
+  }
+
   try {
     for (const [position, track] of chosen.entries()) {
       const label = `트랙 #${track.subtitleIndex} (${formatName(track.mimeType)})`;
       const startedAt = performance.now();
 
-      say(`${label} — 자막을 꺼내는 중…`);
-      const cues = track.standaloneSup
-        ? await readStandaloneSup(state.file)
-        : await readTrackCues(state.file, track, state.container, state.context, (read, total) =>
-            showProgress(total ? read / total : null),
-          );
-      showProgress(null);
+      let cues = readTogether?.get(track.subtitleIndex);
+      if (cues) {
+        // 다 쓴 것은 바로 놓아 준다 — 그림 자막은 트랙마다 수십 메가바이트다.
+        readTogether.delete(track.subtitleIndex);
+      } else {
+        say(`${label} — 자막을 꺼내는 중…`);
+        cues = track.standaloneSup
+          ? await readStandaloneSup(state.file)
+          : await readTrackCues(state.file, track, state.container, state.context, (read, total) =>
+              showProgress(total ? read / total : null),
+            );
+        showProgress(null);
+      }
 
       let textCues = cues;
       if (cues.some((cue) => cue.image)) {

@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 from subex import __version__
-from subex.extract import ExtractOptions, extract_track
+from subex.extract import ExtractOptions, extract_text_tracks, extract_track
 from subex.ffmpeg import FFmpegError, ToolMissing, which
 from subex.probe import SubtitleTrack, probe_subtitles
 from subex.srt import write_srt
@@ -173,6 +173,17 @@ def _process_file(source: Path, args, used: set[Path]) -> tuple[int, int]:
     say(f"{source.name}")
     with tempfile.TemporaryDirectory(prefix="subex-") as tmp:
         workdir = Path(tmp)
+
+        # 글자 자막은 ffmpeg 한 번으로 다 꺼낸다. 트랙마다 부르면 그때마다 영상
+        # 파일을 처음부터 다시 읽는다.
+        ready: dict[int, list] = {}
+        batch = [track for track in selected if track.supported and not track.is_bitmap]
+        if len(batch) > 1:
+            try:
+                ready = extract_text_tracks(source, batch, workdir, options)
+            except (FFmpegError, ToolMissing, RuntimeError, ValueError):
+                ready = {}       # 한 번에 안 되면 아래에서 트랙마다 따로 간다
+
         for track in selected:
             say(f"  트랙 {track.describe()}")
             if not track.supported:
@@ -189,7 +200,9 @@ def _process_file(source: Path, args, used: set[Path]) -> tuple[int, int]:
 
             started = time.monotonic()
             try:
-                cues = extract_track(source, track, workdir, options)
+                cues = ready.pop(track.index, None)
+                if cues is None:
+                    cues = extract_track(source, track, workdir, options)
             except (FFmpegError, ToolMissing, RuntimeError, ValueError) as error:
                 print(f"    [!] 실패: {error}", file=sys.stderr)
                 failed += 1

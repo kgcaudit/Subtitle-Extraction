@@ -213,13 +213,38 @@ test('색인을 따라가도 훑은 것과 결과가 같다 (MKV)', async () => 
 
   for (const track of tracks) {
     const fast = await readSubtitleSamples(file, track.trackNumber, timestampScale);
-    const slow = await readSamplesByScanning(file, track.trackNumber, timestampScale);
+    const slow = await readSamplesByScanning(file, [track.trackNumber], timestampScale);
     const key = (sample) => `${sample.startMs}/${sample.durationMs}/${Array.from(sample.data).join(',')}`;
 
     assert.deepEqual(
       fast.samples.map(key),
-      slow.samples.map(key),
+      slow.get(track.trackNumber).samples.map(key),
       `트랙 #${track.subtitleIndex} (${track.mimeType}) 의 조각이 달라졌다`,
+    );
+  }
+});
+
+test('여러 트랙을 한 번에 읽어도 따로 읽은 것과 같다 (MKV)', async () => {
+  // 트랙마다 따로 읽으면 MKV 는 파일을 트랙 수만큼 반복해서 읽는다(실측: 83MB
+  // 파일에서 트랙 3개를 뽑으면 247.9MB — 파일의 299%). 한 번 지나가며 다 담으면
+  // 100% 다. 대신 **결과가 같아야** 쓸 수 있다.
+  const { listSubtitleTracks, readSubtitleSamples, readSamplesForTracks } =
+    await import('../src/mkv.js');
+
+  const file = fileFrom('sample.mkv');
+  const { tracks, timestampScale } = await listSubtitleTracks(file);
+  const numbers = tracks.map((track) => track.trackNumber);
+  assert.ok(numbers.length >= 3, '자막 트랙 세 종류가 있어야 한다');
+
+  const together = await readSamplesForTracks(file, numbers, timestampScale);
+  const key = (sample) => `${sample.startMs}/${sample.durationMs}/${Array.from(sample.data).join(',')}`;
+
+  for (const track of tracks) {
+    const alone = await readSubtitleSamples(file, track.trackNumber, timestampScale);
+    assert.deepEqual(
+      together.get(track.trackNumber).samples.map(key),
+      alone.samples.map(key),
+      `트랙 #${track.subtitleIndex} (${track.mimeType}) 이 한 번에 읽을 때 달라졌다`,
     );
   }
 });
@@ -248,10 +273,13 @@ test('색인을 못 쓰면 훑는 길만으로도 다 읽힌다 (MKV)', async ()
   const file = fileFrom('sample.mkv');
   const { tracks, timestampScale } = await listSubtitleTracks(file);
 
+  // 한 번 훑으며 모든 트랙을 담는다.
+  const byTrack = await readSamplesByScanning(
+    file, tracks.map((track) => track.trackNumber), timestampScale,
+  );
   for (const track of tracks) {
-    const { samples } = await readSamplesByScanning(file, track.trackNumber, timestampScale);
     assert.ok(
-      samples.length > 0,
+      byTrack.get(track.trackNumber).samples.length > 0,
       `트랙 #${track.subtitleIndex} (${track.mimeType}) 을 훑어서 읽지 못했다`,
     );
   }

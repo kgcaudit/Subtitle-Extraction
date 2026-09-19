@@ -216,7 +216,7 @@ async function readTrackEntry(reader, element) {
  * 색인이 없거나, 우리 트랙이 색인에 없거나, CueRelativePosition 이 빠진 옛날
  * 파일이면 null 을 돌려주고 원래대로 훑는다.
  */
-async function readSamplesViaCues(file, trackNumber, timestampScale, onProgress) {
+async function readSamplesViaCues(file, trackNumbers, timestampScale, onProgress) {
   const reader = new SliceReader(file, CUE_CHUNK_SIZE);
   const scaleMs = timestampScale / 1e6;
 
@@ -226,9 +226,21 @@ async function readSamplesViaCues(file, trackNumber, timestampScale, onProgress)
   const cuesPosition = await findCuesPosition(reader, segmentStart);
   if (cuesPosition === null) return null;
 
-  const points = await readCuePoints(reader, cuesPosition, trackNumber);
-  if (!points) return null;
+  // 트랙마다 색인 자리를 따로 모은 뒤 하나로 합쳐 읽는다. 여러 트랙의 자막이
+  // 같은 클러스터에 들어 있는 일이 흔해서, 합쳐 읽으면 머리말을 나눠 쓴다.
+  const cues = await readCuePoints(reader, cuesPosition, trackNumbers);
+  if (globalThis.__DBG) console.error('  cues:', cues && [...cues].map(([k,v])=>`${k}=${v.length}`).join(','));
+  if (!cues) return null;
+
+  const points = [];
+  for (const [track, list] of cues) {
+    list.forEach((point, order) => points.push({ ...point, track, order }));
+  }
+  if (!points.length) return null;
   if (!worthFollowingCues(points.length, file.size)) return null;
+
+  // 파일 앞쪽부터 읽도록 자리 순으로 정렬한다. 결과는 트랙별 차례대로 담는다.
+  points.sort((a, b) => a.cluster - b.cluster || a.relative - b.relative);
 
   const clusters = new Map();
   const found = new Array(points.length).fill(null);
@@ -238,24 +250,31 @@ async function readSamplesViaCues(file, trackNumber, timestampScale, onProgress)
   // 안 나오면, 나머지 수백 자리를 헛되이 읽지 말고 바로 훑는 쪽으로 넘긴다.
   // (자리 계산이 다른 만듦새의 파일에서 헛수고 + 훑기로 두 배 느려지는 것을 막는다.)
   const probe = Math.min(CUE_TRUST_PROBE, points.length);
-  await fetchPoints(points, 0, probe, found, {
-    file, segmentStart, trackNumber, scaleMs, clusters, readers,
-  });
+  const context = { file, segmentStart, scaleMs, clusters, readers };
+  await fetchPoints(points, 0, probe, found, context);
+  if (globalThis.__DBG) console.error('  probe 결과:', found.slice(0, probe).filter(Boolean).length, '/', probe);
   if (!found.slice(0, probe).some(Boolean)) return null;
 
   await fetchPoints(points, probe, points.length, found, {
-    file, segmentStart, trackNumber, scaleMs, clusters, readers,
+    ...context,
     onProgress: onProgress && ((done) => onProgress(done, points.length)),
   });
 
-  const samples = found.filter(Boolean);
-  if (!samples.length) return null;
+  const bytesFetched = readers.reduce((total, one) => total + one.bytesFetched, 0);
+  const byTrack = new Map([...cues.keys()].map((track) => [track, []]));
+  let total = 0;
+  points.forEach((point, index) => {
+    const sample = found[index];
+    if (!sample) return;
+    byTrack.get(point.track)[point.order] = sample;
+    total += 1;
+  });
+  if (!total) return null;
 
-  onProgress?.(points.length, points.length, samples.length);
-  return {
-    samples,
-    bytesFetched: readers.reduce((total, one) => total + one.bytesFetched, 0),
-  };
+  onProgress?.(points.length, points.length);
+  return new Map(
+    [...byTrack].map(([track, list]) => [track, { samples: list.filter(Boolean), bytesFetched }]),
+  );
 }
 
 /**
@@ -283,7 +302,7 @@ export function worthFollowingCues(pointCount, fileSize) {
  * 일꾼마다 자기 읽기 버퍼를 따로 쓴다 — 하나를 나눠 쓰면 서로 덮어쓴다.
  */
 async function fetchPoints(points, from, to, found, context) {
-  const { file, segmentStart, trackNumber, scaleMs, clusters, readers, onProgress } = context;
+  const { file, segmentStart, scaleMs, clusters, readers, onProgress } = context;
   const workers = Math.min(CUE_FETCH_CONCURRENCY, to - from);
   if (workers <= 0) return;
 
@@ -301,7 +320,7 @@ async function fetchPoints(points, from, to, found, context) {
       const cluster = await readClusterHead(reader, segmentStart + point.cluster, clusters);
       if (cluster) {
         found[index] = await readBlockAt(reader, cluster.dataStart + point.relative,
-                                         trackNumber, cluster.timestamp, scaleMs);
+                                         point.track, cluster.timestamp, scaleMs);
       }
       done += 1;
       if (onProgress && done % 32 === 0) onProgress(from + done);
@@ -354,12 +373,13 @@ function findCuesInSeekHead(body, segmentStart) {
 }
 
 /** Cues 안에서 이 트랙의 (클러스터 위치, 블록 상대 위치)만 모은다. */
-async function readCuePoints(reader, cuesPosition, trackNumber) {
+async function readCuePoints(reader, cuesPosition, trackNumbers) {
   const cues = await readElementHeader(reader, cuesPosition);
   if (!cues || cues.id !== ID.CUES || !Number.isFinite(cues.dataSize)) return null;
 
   const body = await reader.read(cues.dataStart, cues.dataSize);
-  const points = [];
+  const wanted = new Set(trackNumbers);
+  const byTrack = new Map(trackNumbers.map((number) => [number, []]));
 
   for (const point of iterateElements(body)) {
     if (point.id !== ID.CUE_POINT) continue;
@@ -374,13 +394,17 @@ async function readCuePoints(reader, cuesPosition, trackNumber) {
         else if (field.id === ID.CUE_CLUSTER_POSITION) cluster = value();
         else if (field.id === ID.CUE_RELATIVE_POSITION) relative = value();
       }
-      if (track !== trackNumber) continue;
+      if (!wanted.has(track)) continue;
       // 블록 자리를 모르면 클러스터를 통째로 읽어야 해서 남는 게 없다. 훑는 쪽이 낫다.
       if (cluster === null || relative === null) return null;
-      points.push({ cluster, relative });
+      byTrack.get(track).push({ cluster, relative });
     }
   }
-  return points.length ? points : null;
+
+  // 한 트랙이라도 색인에 없으면 그 트랙만 따로 훑어야 해서 이득이 사라진다.
+  // 차라리 다 같이 한 번 훑는 편이 낫다.
+  for (const list of byTrack.values()) if (!list.length) return null;
+  return byTrack;
 }
 
 /** 클러스터 앞머리에서 시각을 읽는다. 같은 클러스터는 한 번만 읽는다. */
@@ -445,7 +469,8 @@ async function readBlockAt(reader, position, trackNumber, clusterTimestamp, scal
   }
 
   const samples = [];
-  await collectBlock(reader, block, trackNumber, clusterTimestamp, scaleMs, samples, duration);
+  await collectBlock(reader, block, new Map([[trackNumber, samples]]),
+                     clusterTimestamp, scaleMs, duration);
   return samples[0] ?? null;
 }
 
@@ -465,14 +490,35 @@ function* iterateElements(bytes, start = 0, end = bytes.length) {
 }
 
 export async function readSubtitleSamples(file, trackNumber, timestampScale, onProgress) {
+  const byTrack = await readSamplesForTracks(file, [trackNumber], timestampScale, onProgress);
+  return byTrack.get(trackNumber) ?? { samples: [], bytesFetched: 0 };
+}
+
+/**
+ * 여러 트랙의 자막 조각을 **파일을 한 번만 지나가며** 모은다.
+ *
+ * 트랙마다 따로 읽으면 파일을 트랙 수만큼 반복해서 읽는다(실측: 83MB 파일에서
+ * 자막 트랙 3개를 뽑으면 247.9MB — 파일의 299% 를 읽었다). mkvextract 처럼 한 번
+ * 지나가며 필요한 트랙을 동시에 주워 담으면 한 번으로 끝난다.
+ *
+ * @returns Map<트랙번호, { samples, bytesFetched }>
+ */
+export async function readSamplesForTracks(file, trackNumbers, timestampScale, onProgress) {
+  const wanted = [...new Set(trackNumbers)];
+  if (!wanted.length) return new Map();
+
   // 색인이 있으면 자막 자리로 바로 건너뛴다. 없으면 처음부터 훑는다.
   try {
-    const viaCues = await readSamplesViaCues(file, trackNumber, timestampScale, onProgress);
+    const viaCues = await readSamplesViaCues(file, wanted, timestampScale, onProgress);
     if (viaCues) return viaCues;
-  } catch {
-    // 색인이 깨져 있어도 훑어서 얻을 수 있으니 조용히 넘어간다.
+  } catch (error) {
+    // 색인이 깨져 있어도 훑어서 얻을 수 있으니 넘어간다. 다만 **우리 코드의 잘못**
+    // 까지 삼키면 안 된다 — 실제로 함수 하나를 지워 놓고도 조용히 훑기로 돌아가는
+    // 바람에 색인이 통째로 죽은 것을 한참 뒤에야 알았다.
+    if (error instanceof ReferenceError || error instanceof TypeError) throw error;
+    console.warn('색인을 읽지 못해 훑어서 찾습니다:', error);
   }
-  return readSamplesByScanning(file, trackNumber, timestampScale, onProgress);
+  return readSamplesByScanning(file, wanted, timestampScale, onProgress);
 }
 
 /**
@@ -483,9 +529,10 @@ export async function readSubtitleSamples(file, trackNumber, timestampScale, onP
  * 않지만 머리말이 수십 킬로바이트마다 흩어져 있어 결국 파일 대부분을 지나간다.
  * (시험에 쓰려고 따로 내보낸다 — 색인 경로와 결과가 같은지 맞춰 보기 위해서다.)
  */
-export async function readSamplesByScanning(file, trackNumber, timestampScale, onProgress) {
+export async function readSamplesByScanning(file, trackNumbers, timestampScale, onProgress) {
+  const wanted = Array.isArray(trackNumbers) ? [...new Set(trackNumbers)] : [trackNumbers];
   const reader = new SliceReader(file);
-  const samples = [];
+  const buckets = new Map(wanted.map((number) => [number, []]));
   const scaleMs = timestampScale / 1e6;
 
   let offset = 0;
@@ -514,7 +561,7 @@ export async function readSamplesByScanning(file, trackNumber, timestampScale, o
       if (element.id === ID.CLUSTER_TIMESTAMP) {
         clusterTimestamp = readUint(await reader.ensure(element.dataStart, element.dataSize));
       } else if (element.id === ID.SIMPLE_BLOCK) {
-        await collectBlock(reader, element, trackNumber, clusterTimestamp, scaleMs, samples, null);
+        await collectBlock(reader, element, buckets, clusterTimestamp, scaleMs, null);
       } else if (element.id === ID.BLOCK_GROUP) {
         const groupEnd = element.dataStart + element.dataSize;
         let inner = element.dataStart;
@@ -530,28 +577,33 @@ export async function readSamplesByScanning(file, trackNumber, timestampScale, o
           inner = child.dataStart + child.dataSize;
         }
         if (blockElement) {
-          await collectBlock(reader, blockElement, trackNumber, clusterTimestamp, scaleMs, samples, duration);
+          await collectBlock(reader, blockElement, buckets, clusterTimestamp, scaleMs, duration);
         }
         offset = groupEnd;
-        if (onProgress) onProgress(offset, reader.size, samples.length);
+        if (onProgress) onProgress(offset, reader.size);
         continue;
       }
       offset = element.dataStart + element.dataSize;
-      if (onProgress && samples.length % 32 === 0) onProgress(offset, reader.size, samples.length);
+      if (onProgress) onProgress(offset, reader.size);
       continue;
     }
 
     offset = element.dataStart + Math.min(element.dataSize, reader.size - element.dataStart);
   }
 
-  return { samples, bytesFetched: reader.bytesFetched };
+  // 한 번 지나가며 모았으므로 읽은 양은 트랙들이 나눠 쓴 값이다.
+  return new Map(
+    [...buckets].map(([number, samples]) => [number, { samples, bytesFetched: reader.bytesFetched }]),
+  );
 }
 
-async function collectBlock(reader, element, trackNumber, clusterTimestamp, scaleMs, samples, duration) {
+async function collectBlock(reader, element, buckets, clusterTimestamp, scaleMs, duration) {
   // 블록의 앞 4바이트만 읽어 트랙 번호를 확인한다. 남의 트랙이면 내용은 건드리지 않는다.
   const head = await reader.ensure(element.dataStart, Math.min(8, element.dataSize));
   const track = readVint(head, 0, false);
-  if (!track || track.value !== trackNumber) return;
+  if (!track) return;
+  const samples = buckets.get(track.value);
+  if (!samples) return;
 
   const payloadStart = element.dataStart + track.length + 3;
   const payloadSize = element.dataSize - track.length - 3;
