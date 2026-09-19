@@ -471,3 +471,36 @@ test('추출 단추가 화면을 따라다니고, 진행과 결과도 눈앞에�
     }, { timeout: 10000 });
   });
 });
+
+/**
+ * 무슨 파일을 열었는지 화면에 남아 있어야 한다.
+ *
+ * 예전에는 파일 이름이 상태 글에 잠깐 스쳤다가 '자막 트랙 28개를 찾았습니다' 로
+ * 덮여 사라졌다. 화면을 찍어 놓고 보면 어느 영상에서 뽑은 자막인지 알 수 없었다.
+ */
+test('연 파일 이름이 화면에 남는다 — DVD 자막은 두 파일 다', { timeout: 300000 }, async (t) => {
+  if (!(await loadPlaywright())) return t.skip(skipReason);
+
+  await withPage(async (page) => {
+    await page.setInputFiles('#file', fixture('many.mkv'));
+    await page.waitForFunction(
+      () => document.querySelectorAll('#tracks .track').length === 8,
+      { timeout: 30000 },
+    );
+    assert.equal(await page.textContent('#openName'), 'many.mkv');
+    assert.match(await page.textContent('#openMeta'), /^\d+(\.\d)?(B|KB|MB|GB)$/);
+    assert.ok(await page.isHidden('#dropEmpty'), '파일을 열었으면 안내 문구는 감춘다');
+
+    // 트랙을 다 찾은 뒤에도 이름이 남아 있어야 한다(상태 글에 덮이지 않는다).
+    assert.match(await page.textContent('#status'), /자막 트랙 8개/);
+    assert.equal(await page.textContent('#openName'), 'many.mkv');
+
+    // DVD 자막은 .idx 와 .sub 이 짝이므로 둘 다 적는다.
+    await page.setInputFiles('#file', [fixture('sample.idx'), fixture('sample.sub')]);
+    await page.waitForFunction(
+      () => document.getElementById('openName').textContent.includes('.idx'),
+      { timeout: 30000 },
+    );
+    assert.equal(await page.textContent('#openName'), 'sample.sub + sample.idx');
+  });
+});

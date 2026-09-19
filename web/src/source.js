@@ -73,5 +73,11 @@ export async function resolveSource({ indexFile, mainFile }) {
     };
   }
 
-  return { ready: true, file: mainFile, indexText: indexFile ? await indexFile.text() : null };
+  return {
+    ready: true,
+    file: mainFile,
+    indexText: indexFile ? await indexFile.text() : null,
+    // 화면에 '무엇을 열었는지' 를 적으려면 짝이 된 .idx 이름도 있어야 한다.
+    indexName: indexFile ? indexFile.name : null,
+  };
 }

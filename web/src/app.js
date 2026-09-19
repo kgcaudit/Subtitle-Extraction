@@ -42,6 +42,10 @@ const ui = {
   downloadZip: document.getElementById('downloadZip'),
   extractBar: document.getElementById('extractBar'),
   extractFill: document.getElementById('extractFill'),
+  dropEmpty: document.getElementById('dropEmpty'),
+  dropOpen: document.getElementById('dropOpen'),
+  openName: document.getElementById('openName'),
+  openMeta: document.getElementById('openMeta'),
 };
 
 /** 그림 자막 인식 설정. 측정해 보면 자료에 따라 최선이 달라 고를 수 있게 했다. */
@@ -116,6 +120,37 @@ function showProgress(ratio) {
  */
 function showWork(label) {
   ui.extract.textContent = label ?? '선택한 자막 추출';
+}
+
+/** 1.2GB 처럼 사람이 읽는 크기로. */
+function fileSize(bytes) {
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value < 10 && unit ? value.toFixed(1) : Math.round(value)}${units[unit]}`;
+}
+
+/**
+ * 지금 연 파일이 무엇인지 드롭 칸에 적는다.
+ *
+ * 이게 없으면 화면만 봐서는 어느 영상에서 뽑은 자막인지 알 수가 없다. 상태 글에
+ * 잠깐 스쳤다가 '자막 트랙 28개를 찾았습니다' 로 덮여 사라졌다.
+ * DVD 자막은 .idx 와 .sub 두 파일이 짝이므로 둘 다 적는다.
+ */
+function showOpenedFile(file, indexName = null) {
+  if (!file) {
+    ui.dropEmpty.hidden = false;
+    ui.dropOpen.hidden = true;
+    return;
+  }
+  ui.openName.textContent = indexName ? `${file.name} + ${indexName}` : file.name;
+  ui.openMeta.textContent = fileSize(file.size);
+  ui.dropEmpty.hidden = true;
+  ui.dropOpen.hidden = false;
 }
 
 function setBusy(busy) {
@@ -389,7 +424,7 @@ async function openFiles(files) {
 
     state.held = { indexFile: null, mainFile: null };
     handedOver = true;
-    await openFile(source.file, source.indexText);
+    await openFile(source.file, source.indexText, source.indexName);
   } catch (error) {
     say(`파일을 읽지 못했습니다: ${error.message}`, true);
   } finally {
@@ -399,9 +434,10 @@ async function openFiles(files) {
   }
 }
 
-async function openFile(file, indexText = null) {
+async function openFile(file, indexText = null, indexName = null) {
   state.file = file;
   state.indexText = indexText;
+  showOpenedFile(file, indexName);
   state.tracks = [];
   state.selected = new Set();
   clearResults();

@@ -21,9 +21,18 @@
       <!-- accept 를 걸지 않는다. 휴대폰 파일 고르기가 .idx/.sub 같은 낯선 확장자를
            걸러 버려 아예 고를 수 없게 되는 일이 있다. 종류는 앞머리를 보고 가린다. -->
       <input type="file" id="file" multiple hidden>
-      <span class="drop-title">영상 파일을 고르거나 여기에 끌어다 놓으세요</span>
-      <span class="drop-note">MKV · WebM · MP4 · MOV, 그리고 .sup / .idx+.sub 자막 파일</span>
-      <span class="drop-note">DVD 자막(.idx + .sub)은 <strong>하나씩 차례로</strong> 골라도 됩니다</span>
+      <span class="drop-empty" id="dropEmpty">
+        <span class="drop-title">영상 파일을 고르거나 여기에 끌어다 놓으세요</span>
+        <span class="drop-note">MKV · WebM · MP4 · MOV, 그리고 .sup / .idx+.sub 자막 파일</span>
+        <span class="drop-note">DVD 자막(.idx + .sub)은 <strong>하나씩 차례로</strong> 골라도 됩니다</span>
+      </span>
+      <!-- 파일을 연 뒤에는 같은 자리에 '무슨 파일을 열었는지' 를 보여 준다.
+           이게 없으면 화면만 봐서는 어느 영상에서 뽑은 자막인지 알 수가 없다. -->
+      <span class="drop-open" id="dropOpen" hidden>
+        <span class="drop-name" id="openName"></span>
+        <span class="drop-note" id="openMeta"></span>
+        <span class="drop-note">다른 파일을 고르려면 여기를 누르세요</span>
+      </span>
     </label>
     <p class="status" id="status" role="status" aria-live="polite"></p>
     <div class="bar" id="bar" hidden><div class="bar-fill" id="barFill"></div></div>
