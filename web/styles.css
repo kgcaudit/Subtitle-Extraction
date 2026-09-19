@@ -140,7 +140,13 @@ h2 { font-size: 1.05rem; margin: 28px 0 10px; }
 }
 .result-name { font-weight: 600; word-break: break-all; }
 .result-count { color: var(--muted); font-size: 0.85rem; }
+/* 미리보기는 '시작 시각 | 대사' 두 칸이다. 글자 수로 자리를 맞추지 않고 칸으로
+ * 나눠야, 대사가 접혀 내려가도 시각 칸 밑으로 흘러들지 않는다. */
 .preview {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  align-items: start;
+  gap: 4px 10px;
   margin: 10px 0 0;
   padding: 10px;
   max-height: 180px;
@@ -149,8 +155,19 @@ h2 { font-size: 1.05rem; margin: 28px 0 10px; }
   background: var(--ground);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.8rem;
+}
+.preview .at {
+  color: var(--muted);
+  white-space: nowrap;
+  /* 숫자 폭을 고르게 — 시각이 들쭉날쭉해 보이지 않는다. */
+  font-variant-numeric: tabular-nums;
+}
+/* 자막 한 개가 두 줄이면 그 줄바꿈은 그대로 살린다. 칸이 좁아 접힐 때는 한글답게
+ * 어절 단위로 접고(keep-all), 한 낱말이 통째로 넘칠 때만 낱말 안에서 자른다. */
+.preview .line {
   white-space: pre-wrap;
-  word-break: break-word;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 
 /* --- 버튼 --- */

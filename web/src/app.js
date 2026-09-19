@@ -16,7 +16,7 @@ import { classify, resolveSource } from './source.js';
 import { measureLineHeight, prepareLines } from './bitmapPrep.js';
 import { OcrPool, pickLanguage } from './ocr.js';
 import { tidy } from './postprocess.js';
-import { render } from './srt.js';
+import { render, formatTimestamp } from './srt.js';
 import { makeZip } from './zip.js';
 
 const ui = {
@@ -59,6 +59,9 @@ function ocrSettings() {
 
 /** 트랙이 이보다 많으면 자동으로 다 켜지 않는다. 28개짜리 영화가 실제로 있다. */
 const AUTO_SELECT_LIMIT = 5;
+
+/** 결과마다 미리 보여 줄 자막 개수. */
+const PREVIEW_CUES = 5;
 
 const state = {
   file: null,
@@ -309,12 +312,20 @@ function addResult(fileName, cues) {
 
   head.append(pick, label, download);
 
-  const preview = document.createElement('pre');
+  // 미리보기에 시작 시각을 붙인다. 대사만 있으면 어느 대목인지 알 수 없고,
+  // 어디까지가 자막 하나인지도 구별되지 않았다(두 줄짜리 자막이 두 개처럼 보였다).
+  const preview = document.createElement('div');
   preview.className = 'preview';
-  preview.textContent = cues
-    .slice(0, 5)
-    .map((cue) => cue.text)
-    .join('\n');
+  for (const cue of cues.slice(0, PREVIEW_CUES)) {
+    const at = document.createElement('span');
+    at.className = 'at';
+    // 파일 안에서는 쉼표(SRT 규칙)지만 화면에서는 점으로 적는다.
+    at.textContent = formatTimestamp(cue.startMs).replace(',', '.');
+    const line = document.createElement('span');
+    line.className = 'line';
+    line.textContent = cue.text;
+    preview.append(at, line);
+  }
 
   item.append(head, preview);
   ui.results.append(item);
