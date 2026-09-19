@@ -531,8 +531,8 @@ test('미리보기가 자막마다 시작 시각을 앞에 붙인다', { timeout
     const times = await page.$$eval('#results .preview .at', (els) => els.map((el) => el.textContent));
     const lines = await page.$$eval('#results .preview .line', (els) => els.map((el) => el.textContent));
 
-    // 자막이 셋뿐인 자료다. 시각은 점으로 적고, 파일 안의 값과 같아야 한다.
-    assert.deepEqual(times, ['00:00:01.000', '00:00:04.000', '00:00:07.000']);
+    // 자막이 셋뿐인 자료다. 시각은 자막 파일 안과 똑같이 쉼표로 적는다.
+    assert.deepEqual(times, ['00:00:01,000', '00:00:04,000', '00:00:07,000']);
     assert.equal(lines.length, times.length, '시각과 대사의 개수가 다릅니다');
 
     // 두 줄짜리 자막은 한 덩어리로 남는다 — 두 개로 쪼개지지 않는다.

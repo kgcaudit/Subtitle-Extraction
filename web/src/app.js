@@ -319,8 +319,9 @@ function addResult(fileName, cues) {
   for (const cue of cues.slice(0, PREVIEW_CUES)) {
     const at = document.createElement('span');
     at.className = 'at';
-    // 파일 안에서는 쉼표(SRT 규칙)지만 화면에서는 점으로 적는다.
-    at.textContent = formatTimestamp(cue.startMs).replace(',', '.');
+    // 자막 파일 안과 똑같이 쉼표(SRT 규칙)로 적는다 — 화면에서 본 값을 파일에서
+    // 그대로 찾을 수 있어야 한다.
+    at.textContent = formatTimestamp(cue.startMs);
     const line = document.createElement('span');
     line.className = 'line';
     line.textContent = cue.text;
