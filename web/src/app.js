@@ -40,6 +40,8 @@ const ui = {
   resultAll: document.getElementById('resultAll'),
   resultNone: document.getElementById('resultNone'),
   downloadZip: document.getElementById('downloadZip'),
+  extractBar: document.getElementById('extractBar'),
+  extractFill: document.getElementById('extractFill'),
 };
 
 /** 그림 자막 인식 설정. 측정해 보면 자료에 따라 최선이 달라 고를 수 있게 했다. */
@@ -91,17 +93,35 @@ function sayWaiting(message) {
 }
 
 function showProgress(ratio) {
+  // 페이지 맨 위의 막대와, 화면을 따라다니는 실행 막대 양쪽에 같이 그린다.
+  // 자막이 많은 파일에서는 위쪽 막대가 몇 화면 위에 있어 보이지 않는다.
+  const bars = [[ui.bar, ui.barFill], [ui.extractBar, ui.extractFill]];
   if (ratio === null) {
-    ui.bar.hidden = true;
+    for (const [bar] of bars) if (bar) bar.hidden = true;
     return;
   }
-  ui.bar.hidden = false;
-  ui.barFill.style.width = `${Math.round(Math.min(1, Math.max(0, ratio)) * 100)}%`;
+  const percent = `${Math.round(Math.min(1, Math.max(0, ratio)) * 100)}%`;
+  for (const [bar, fill] of bars) {
+    if (!bar) continue;
+    bar.hidden = false;
+    fill.style.width = percent;
+  }
+}
+
+/**
+ * 실행 막대의 단추에 지금 무엇을 하고 있는지 적는다.
+ *
+ * 상태 글(`#status`)은 페이지 맨 위에 있어 자막이 많으면 화면 밖이다. 단추는
+ * 눈앞에 있으므로 여기에도 짧게 적어 준다. `null` 이면 원래 이름으로 돌린다.
+ */
+function showWork(label) {
+  ui.extract.textContent = label ?? '선택한 자막 추출';
 }
 
 function setBusy(busy) {
   state.busy = busy;
   ui.extract.disabled = busy || state.selected.size === 0;
+  if (!busy) showWork(null);
   if (ui.trackCount) updateTrackCount();
   if (ui.downloadZip) updateResultCount();
   ui.file.disabled = busy;
@@ -291,6 +311,17 @@ function setAllResults(on) {
 }
 
 /**
+ * 다 뽑고 나면 결과로 데려다 준다.
+ *
+ * 추출 단추가 화면을 따라다니게 되면서, 다 끝나도 결과가 화면 밖에 있는 일이
+ * 생겼다. 움직임을 줄여 달라고 설정한 분에게는 건너뛰듯 옮긴다.
+ */
+function showResults() {
+  const calm = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  ui.resultSection.scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'start' });
+}
+
+/**
  * 고른 결과를 한 번에 내려받는다.
  *
  * 여러 개면 zip 하나로 묶는다. 브라우저에게 파일 여러 개를 한꺼번에 내려받게
@@ -420,6 +451,7 @@ async function extractSelected() {
   let readTogether = null;
   if (chosen.length > 1 && !chosen.some((track) => track.standaloneSup)) {
     say(`자막 ${chosen.length}개를 한 번에 꺼내는 중…`);
+    showWork('자막 꺼내는 중…');
     readTogether = await readAllTrackCues(
       state.file, chosen, state.container, state.context,
       (read, total) => showProgress(total ? read / total : null),
@@ -431,6 +463,7 @@ async function extractSelected() {
     for (const [position, track] of chosen.entries()) {
       const label = `트랙 #${track.subtitleIndex} (${formatName(track.mimeType)})`;
       const startedAt = performance.now();
+      showWork(`추출 중… ${position + 1}/${chosen.length}`);
 
       let cues = readTogether?.get(track.subtitleIndex);
       if (cues) {
@@ -470,6 +503,7 @@ async function extractSelected() {
     }
 
     if (!ui.results.childElementCount) say('추출된 자막이 없습니다.', true);
+    else showResults();
   } catch (error) {
     say(`추출 중 문제가 생겼습니다: ${error.message}`, true);
   } finally {

@@ -223,3 +223,65 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 .result input[type="checkbox"] { margin-right: 10px; flex: none; width: 18px; height: 18px; }
 .result-head { align-items: center; }
+
+/* --- 화면을 따라다니는 실행 막대 -------------------------------------------
+ *
+ * 자막이 28개인 파일에서는 추출 단추가 목록 맨 끝에 있어, 작은 폰에서 4화면을
+ * 내려가야 닿았다. 누른 뒤에도 진행 막대는 페이지 맨 위에 있어 아무 일도 일어나지
+ * 않는 것처럼 보였다. 그래서 '몇 개 골랐는지 + 단추 + 진행' 을 한 막대에 모아
+ * 화면 아래에 붙여 둔다.
+ *
+ * position: fixed 가 아니라 sticky 다. 제 구역(트랙 목록/결과 목록) 안에서만
+ * 붙어 다니므로, 자막이 서너 개여서 목록이 한 화면에 들어오면 아무 일도 하지
+ * 않는다 — 지금까지와 똑같이 보인다. 결과 막대와 자리를 다툴 일도 없다.
+ * 구역이 겹치지 않으니 두 막대도 겹치지 않는다.
+ *
+ * 아이폰 홈 인디케이터 여백은 따로 두지 않는다. viewport-fit=cover 를 쓰지
+ * 않으므로 iOS 가 화면 자체를 안전 영역 안으로 줄여 주고, env(safe-area-inset-*)
+ * 는 0 이 된다. 넣어 봐야 아무 값도 더하지 않는다.
+ */
+.actionbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  /* 페이지 좌우 여백(16px)만큼 넓혀 화면 끝까지 닿게 한다. */
+  margin: 8px -16px 0;
+  padding: 10px 16px;
+  background: var(--ground);
+  border-top: 1px solid var(--line);
+}
+.actionbar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.actionbar .count {
+  color: var(--muted);
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+.actionbar .primary {
+  margin: 0;
+  flex: 1 1 auto;
+}
+
+/* 돌아가는 동안 막대 위쪽에 가는 진행선을 그린다. 위로 올라가지 않아도 보인다. */
+.actionbar-bar {
+  height: 3px;
+  margin: -10px -16px 9px;
+  background: var(--line);
+  overflow: hidden;
+}
+.actionbar-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+@media (min-width: 560px) {
+  .actionbar { margin-left: 0; margin-right: 0; padding-left: 0; padding-right: 0; }
+  .actionbar-bar { margin-left: 0; margin-right: 0; }
+  .actionbar .primary { flex: 0 0 auto; }
+  .actionbar .count { flex: 1 1 auto; }
+}

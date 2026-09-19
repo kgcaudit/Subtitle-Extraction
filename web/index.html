@@ -67,26 +67,38 @@
   <section id="trackSection" hidden>
     <h2>자막 트랙</h2>
     <div class="toolbar">
-      <span class="count" id="trackCount"></span>
       <span class="spacer"></span>
       <button id="selectAll" type="button">전체 선택</button>
       <button id="selectNone" type="button">전체 해제</button>
     </div>
     <div class="chips" id="langChips" hidden></div>
     <ul class="tracks" id="tracks"></ul>
-    <button class="primary" id="extract" type="button">선택한 자막 추출</button>
+    <!-- 화면을 따라다니는 막대. 자막이 28개인 파일에서는 목록 끝까지(작은 폰에서
+         4화면) 내려가야 추출 단추가 나왔다. 목록이 한 화면에 들어오면 sticky 가
+         할 일이 없어 지금까지와 똑같이 보인다. -->
+    <div class="actionbar">
+      <div class="actionbar-bar" id="extractBar" hidden><div class="actionbar-fill" id="extractFill"></div></div>
+      <div class="actionbar-row">
+        <span class="count" id="trackCount"></span>
+        <button class="primary" id="extract" type="button">선택한 자막 추출</button>
+      </div>
+    </div>
   </section>
 
   <section id="resultSection" hidden>
     <h2>결과</h2>
     <div class="toolbar">
-      <span class="count" id="resultCount"></span>
       <span class="spacer"></span>
       <button id="resultAll" type="button">전체 선택</button>
       <button id="resultNone" type="button">전체 해제</button>
-      <button class="primary" id="downloadZip" type="button">선택한 것 한 번에 받기</button>
     </div>
     <ul class="results" id="results"></ul>
+    <div class="actionbar">
+      <div class="actionbar-row">
+        <span class="count" id="resultCount"></span>
+        <button class="primary" id="downloadZip" type="button">선택한 것 한 번에 받기</button>
+      </div>
+    </div>
   </section>
 
   <footer class="foot">

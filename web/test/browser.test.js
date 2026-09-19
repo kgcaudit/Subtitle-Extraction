@@ -393,3 +393,81 @@ test('자막이 많으면 스스로 고르지 않고, 전체 선택·언어별 �
     }
   });
 });
+
+/**
+ * 화면을 따라다니는 실행 막대.
+ *
+ * 자막이 28개인 파일에서는 추출 단추가 목록 맨 끝에 있어, 작은 폰에서 4화면을
+ * 내려가야 닿았다. 누른 뒤에도 진행 막대가 페이지 맨 위에 있어 아무 일도
+ * 일어나지 않는 것처럼 보였다.
+ */
+test('추출 단추가 화면을 따라다니고, 진행과 결과도 눈앞에서 보인다', { timeout: 300000 }, async (t) => {
+  if (!(await loadPlaywright())) return t.skip(skipReason);
+
+  await withPage(async (page, pageErrors) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.setInputFiles('#file', fixture('many.mkv'));
+    await page.waitForFunction(
+      () => document.querySelectorAll('#tracks .track').length === 8,
+      { timeout: 30000 },
+    );
+
+    const seen = (selector) => page.evaluate((selector) => {
+      const box = document.querySelector(selector).getBoundingClientRect();
+      return box.top >= 0 && box.bottom <= window.innerHeight;
+    }, selector);
+
+    // 맨 위에 있어도 단추가 보여야 한다. (목록이 한 화면보다 길다는 전제)
+    await page.evaluate(() => window.scrollTo(0, 0));
+    assert.ok(
+      await page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight * 1.5),
+      '이 시험은 목록이 한 화면보다 길어야 뜻이 있습니다',
+    );
+    assert.ok(await seen('#extract'), '맨 위에서 추출 단추가 화면 밖입니다');
+
+    // 목록 한가운데에서도 보여야 한다.
+    await page.evaluate(() => window.scrollTo(0, 600));
+    assert.ok(await seen('#extract'), '목록 가운데에서 추출 단추가 화면 밖입니다');
+
+    // 맨 아래까지 내리면 막대가 제자리로 돌아가 마지막 트랙을 가리지 않는다.
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await page.click('#tracks .track:last-child input');
+    assert.equal(
+      await page.evaluate(() => document.querySelectorAll('#tracks input:checked').length),
+      1,
+      '막대가 마지막 트랙을 가려 누를 수 없습니다',
+    );
+
+    // 돌아가는 동안 단추에 진행이 적힌다. 누르기 전에 지켜볼 준비를 해 둔다.
+    await page.click('#selectAll');
+    await page.evaluate(() => {
+      window.__labels = [];
+      const button = document.getElementById('extract');
+      new MutationObserver(() => window.__labels.push(button.textContent))
+        .observe(button, { childList: true, characterData: true, subtree: true });
+    });
+    await page.click('#extract');
+    await page.waitForFunction(
+      () => document.querySelectorAll('#results .result').length === 8,
+      { timeout: 300000 },
+    );
+    assert.deepEqual(pageErrors, [], '브라우저에서 오류가 났습니다');
+
+    const labels = await page.evaluate(() => window.__labels);
+    assert.ok(
+      labels.some((text) => text.startsWith('추출 중…')),
+      `단추에 진행이 적히지 않았습니다: ${labels.join(' / ')}`,
+    );
+    assert.equal(await page.textContent('#extract'), '선택한 자막 추출', '끝나면 원래 이름으로 돌아와야 합니다');
+    assert.ok(
+      await page.evaluate(() => document.getElementById('extractBar').hidden),
+      '끝났는데 진행선이 남아 있습니다',
+    );
+
+    // 다 되면 결과로 데려다 주고, 받기 단추도 눈앞에 있다.
+    await page.waitForFunction(() => {
+      const box = document.getElementById('downloadZip').getBoundingClientRect();
+      return box.top >= 0 && box.bottom <= window.innerHeight;
+    }, { timeout: 10000 });
+  });
+});
