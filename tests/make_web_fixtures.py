@@ -158,6 +158,26 @@ def main() -> None:
         check=True,
     )
 
+    # --- 자막 트랙이 많은 영상 ---
+    # 실제 블루레이 리믹스에는 자막이 스무 개 넘게 붙어 있다. 그런 파일에서
+    # 고르는 화면이 쓸 만한지 보려고, 여덟 언어짜리 글자 자막을 넣어 둔다.
+    # (글자 자막만 넣어 파일을 작게 유지한다.)
+    many = FIXTURES / "many.mkv"
+    languages = ["eng", "kor", "jpn", "fra", "deu", "spa", "chi", "und"]
+    command = [
+        "ffmpeg", "-v", "error", "-y",
+        "-f", "lavfi", "-i", "color=c=0x203040:s=320x180:d=12:r=5",
+        "-i", str(srt),
+    ]
+    command += ["-map", "0:v"]
+    for _ in languages:
+        command += ["-map", "1:s"]
+    command += ["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:s", "copy"]
+    for index, language in enumerate(languages):
+        command += [f"-metadata:s:s:{index}", f"language={language}"]
+    command.append(str(many))
+    subprocess.run(command, check=True)
+
     # --- 영상 안의 PGS 를 다시 뽑아 해독 (웹판이 보게 될 것과 같은 시각) ---
     muxed_sup = FIXTURES / "sample.muxed.sup"
     subprocess.run(

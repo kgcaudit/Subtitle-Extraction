@@ -275,13 +275,18 @@ MIT.
 동작하고, 영상을 서버로 올리지 않습니다. MKV·WebM·MP4·MOV 와 .sup 자막 파일,
 그리고 DVD 자막 **.idx + .sub 짝**(하나씩 차례로 골라도 됩니다)을 읽습니다.
 
+자막이 스무 개 넘게 든 파일을 위해 **전체 선택 / 전체 해제**, **언어별 고르기**
+(`KOR 2`, `ENG 1` …)가 있고, 고른 자막은 **한꺼번에** 뽑습니다(파일은 한 번만
+지나갑니다). 결과도 골라서 **한 번에 받을 수 있고, 두 개 이상이면 zip 하나로
+묶어** 줍니다.
+
 ```bash
 cd web && npm install && npm run vendor && npm run serve
 ```
 
 브라우저판은 이 파이썬판을 정답지로 삼아 검증합니다. 진짜 크로미움에서 영상을 끝까지
 돌려 만들어진 SRT 가 파이썬판 결과와 바이트 단위로 같은지 확인합니다(`cd web && npm test`,
-39개). 기준 자료는 `python3 tests/make_web_fixtures.py` 와
+49개). 기준 자료는 `python3 tests/make_web_fixtures.py` 와
 `python3 tests/make_parity_golden.py` 로 다시 만들 수 있습니다.
 
 실제 영화 자막 세 편으로 양쪽을 맞춰 보면 **자막 수와 시각이 완전히 같고**

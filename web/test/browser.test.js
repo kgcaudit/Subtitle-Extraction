@@ -8,7 +8,10 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const fixture = (name) => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
@@ -303,5 +306,90 @@ test('VobSub: .idx 를 먼저 골라도 이어진다', { timeout: 300000 }, asyn
       () => document.querySelectorAll('#tracks .track').length === 1,
       { timeout: 30000 },
     );
+  });
+});
+
+/**
+ * 자막이 많이 든 파일에서 고르고 받는 화면.
+ *
+ * 실제로 쓰는 블루레이 리믹스에는 자막이 28개씩 들어 있다. 그런 파일을 열었을
+ * 때 하나씩 눌러야 하거나, 뽑은 뒤에 또 하나씩 받아야 하면 폰에서는 쓸 수가
+ * 없다. 여기서 보는 것은 그 화면이 실제로 손에 맞는가다.
+ */
+test('자막이 많으면 스스로 고르지 않고, 전체 선택·언어별 고르기가 듣는다', { timeout: 300000 }, async (t) => {
+  if (!(await loadPlaywright())) return t.skip(skipReason);
+
+  await withPage(async (page, pageErrors) => {
+    await page.setInputFiles('#file', fixture('many.mkv'));
+    await page.waitForFunction(
+      () => document.querySelectorAll('#tracks .track').length === 8,
+      { timeout: 30000 },
+    );
+
+    const checked = () => page.evaluate(
+      () => document.querySelectorAll('#tracks input[type="checkbox"]:checked').length,
+    );
+
+    // 많으면 스스로 다 골라 두지 않는다 — 두 개만 받고 싶은 사람이 훨씬 많다.
+    assert.equal(await checked(), 0, '자막이 많은데도 스스로 골라 두었습니다');
+    assert.equal(await page.textContent('#trackCount'), '8개 중 0개 선택');
+    assert.ok(await page.isDisabled('#selectNone'), '고른 게 없으면 전체 해제는 눌리지 않아야 합니다');
+
+    await page.click('#selectAll');
+    assert.equal(await checked(), 8);
+    assert.equal(await page.textContent('#trackCount'), '8개 중 8개 선택');
+
+    await page.click('#selectNone');
+    assert.equal(await checked(), 0);
+
+    // 언어 알약: 한국어 하나만 집어낸다.
+    await page.click('#langChips button[data-lang="KOR"]');
+    assert.equal(await checked(), 1, '언어로 고르면 그 언어만 골라져야 합니다');
+    assert.equal(
+      await page.getAttribute('#langChips button[data-lang="KOR"]', 'aria-pressed'),
+      'true',
+    );
+
+    await page.click('#selectAll');
+    await page.click('#extract');
+    await page.waitForFunction(
+      () => document.querySelectorAll('#results .result').length === 8,
+      { timeout: 300000 },
+    );
+    assert.deepEqual(pageErrors, [], '브라우저에서 오류가 났습니다');
+    assert.equal(await page.textContent('#resultCount'), '8개 중 8개 선택');
+    assert.equal(await page.textContent('#downloadZip'), '8개 한 번에 받기 (zip)');
+
+    await page.click('#resultNone');
+    assert.ok(await page.isDisabled('#downloadZip'), '고른 게 없으면 받기는 눌리지 않아야 합니다');
+
+    // 세 개만 골라 한 번에 받는다.
+    for (const index of [0, 2, 5]) {
+      await page.check(`#results .result:nth-child(${index + 1}) input[type="checkbox"]`);
+    }
+    assert.equal(await page.textContent('#downloadZip'), '3개 한 번에 받기 (zip)');
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.click('#downloadZip'),
+    ]);
+    // 이름이 그대로 남아야 한다. 한글이 섞이면 크로뮴이 이름을 통째로 버리고
+    // 확장자 없는 'download' 로 저장해 버리는 환경이 있다.
+    assert.equal(download.suggestedFilename(), 'many.subtitles-3.zip');
+
+    const saved = join(tmpdir(), `subex-${Date.now()}.zip`);
+    await download.saveAs(saved);
+    try {
+      const names = execFileSync('python3', ['-c', [
+        'import sys, zipfile',
+        'z = zipfile.ZipFile(sys.argv[1])',
+        'assert z.testzip() is None',
+        'print("\\n".join(z.namelist()))',
+      ].join('\n'), saved], { encoding: 'utf8' }).trim().split('\n');
+      assert.equal(names.length, 3, `묶인 파일: ${names.join(', ')}`);
+      assert.deepEqual(names, ['many.eng.srt', 'many.jpn.srt', 'many.spa.srt']);
+    } finally {
+      rmSync(saved, { force: true });
+    }
   });
 });

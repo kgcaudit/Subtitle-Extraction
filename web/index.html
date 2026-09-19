@@ -66,12 +66,26 @@
 
   <section id="trackSection" hidden>
     <h2>자막 트랙</h2>
+    <div class="toolbar">
+      <span class="count" id="trackCount"></span>
+      <span class="spacer"></span>
+      <button id="selectAll" type="button">전체 선택</button>
+      <button id="selectNone" type="button">전체 해제</button>
+    </div>
+    <div class="chips" id="langChips" hidden></div>
     <ul class="tracks" id="tracks"></ul>
     <button class="primary" id="extract" type="button">선택한 자막 추출</button>
   </section>
 
   <section id="resultSection" hidden>
     <h2>결과</h2>
+    <div class="toolbar">
+      <span class="count" id="resultCount"></span>
+      <span class="spacer"></span>
+      <button id="resultAll" type="button">전체 선택</button>
+      <button id="resultNone" type="button">전체 해제</button>
+      <button class="primary" id="downloadZip" type="button">선택한 것 한 번에 받기</button>
+    </div>
     <ul class="results" id="results"></ul>
   </section>
 

@@ -202,3 +202,24 @@ button:disabled { opacity: 0.5; cursor: default; }
   max-width: 100%;
 }
 .settings-note { margin: 0; color: var(--muted); font-size: 0.8rem; }
+
+/* 트랙·결과 목록 위의 도구 줄. 트랙이 스물 몇 개씩 되면 하나씩 누를 수 없다. */
+.toolbar {
+  display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap; margin-bottom: 10px;
+}
+.toolbar .spacer { flex: 1 1 auto; }
+.toolbar .count { color: var(--muted); font-size: 0.9rem; }
+.toolbar button { padding: 6px 12px; font-size: 0.9rem; }
+
+/* 언어별 빠른 선택. 한 번 누르면 그 언어를 전부 켜고, 다시 누르면 전부 끈다. */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.chips button {
+  padding: 5px 10px; font-size: 0.85rem; border-radius: 999px;
+}
+.chips button[aria-pressed="true"] {
+  border-color: var(--accent); color: var(--accent); font-weight: 600;
+}
+
+.result input[type="checkbox"] { margin-right: 10px; flex: none; width: 18px; height: 18px; }
+.result-head { align-items: center; }

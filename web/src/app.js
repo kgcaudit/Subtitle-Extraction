@@ -17,6 +17,7 @@ import { measureLineHeight, prepareLines } from './bitmapPrep.js';
 import { OcrPool, pickLanguage } from './ocr.js';
 import { tidy } from './postprocess.js';
 import { render } from './srt.js';
+import { makeZip } from './zip.js';
 
 const ui = {
   drop: document.getElementById('drop'),
@@ -31,6 +32,14 @@ const ui = {
   results: document.getElementById('results'),
   ocrLang: document.getElementById('ocrLang'),
   ocrFit: document.getElementById('ocrFit'),
+  trackCount: document.getElementById('trackCount'),
+  selectAll: document.getElementById('selectAll'),
+  selectNone: document.getElementById('selectNone'),
+  langChips: document.getElementById('langChips'),
+  resultCount: document.getElementById('resultCount'),
+  resultAll: document.getElementById('resultAll'),
+  resultNone: document.getElementById('resultNone'),
+  downloadZip: document.getElementById('downloadZip'),
 };
 
 /** 그림 자막 인식 설정. 측정해 보면 자료에 따라 최선이 달라 고를 수 있게 했다. */
@@ -41,6 +50,9 @@ function ocrSettings() {
     targetLineHeight: ui.ocrFit?.value === 'off' ? 0 : undefined,
   };
 }
+
+/** 트랙이 이보다 많으면 자동으로 다 켜지 않는다. 28개짜리 영화가 실제로 있다. */
+const AUTO_SELECT_LIMIT = 5;
 
 const state = {
   file: null,
@@ -53,6 +65,7 @@ const state = {
   selected: new Set(),
   busy: false,
   objectUrls: [],
+  results: [],
   languageNotice: null,
 };
 
@@ -89,6 +102,8 @@ function showProgress(ratio) {
 function setBusy(busy) {
   state.busy = busy;
   ui.extract.disabled = busy || state.selected.size === 0;
+  if (ui.trackCount) updateTrackCount();
+  if (ui.downloadZip) updateResultCount();
   ui.file.disabled = busy;
   if (ui.ocrLang) ui.ocrLang.disabled = busy;
   if (ui.ocrFit) ui.ocrFit.disabled = busy;
@@ -108,6 +123,7 @@ function renderTracks() {
     checkbox.addEventListener('change', () => {
       if (checkbox.checked) state.selected.add(track.subtitleIndex);
       else state.selected.delete(track.subtitleIndex);
+      updateTrackCount();
       setBusy(state.busy);
     });
 
@@ -129,6 +145,76 @@ function renderTracks() {
     ui.tracks.append(item);
   }
   ui.trackSection.hidden = state.tracks.length === 0;
+  renderLanguageChips();
+  updateTrackCount();
+}
+
+/** 고를 수 있는 트랙. 지원하지 않는 형식은 빼고 센다. */
+function selectableTracks() {
+  return state.tracks.filter(isSupported);
+}
+
+function updateTrackCount() {
+  const total = selectableTracks().length;
+  ui.trackCount.textContent = total
+    ? `${total}개 중 ${state.selected.size}개 선택`
+    : '';
+  ui.selectAll.disabled = state.busy || state.selected.size === total;
+  ui.selectNone.disabled = state.busy || state.selected.size === 0;
+  for (const chip of ui.langChips.querySelectorAll('button')) {
+    const indexes = selectableTracks()
+      .filter((track) => trackLanguage(track) === chip.dataset.lang)
+      .map((track) => track.subtitleIndex);
+    chip.setAttribute('aria-pressed', String(indexes.every((i) => state.selected.has(i))));
+    chip.disabled = state.busy;
+  }
+}
+
+function trackLanguage(track) {
+  return (track.language || 'und').toUpperCase();
+}
+
+/**
+ * 언어별 빠른 선택.
+ *
+ * 자막이 28개씩 들어 있는 영화가 있다. 그중 한국어 두 개만 뽑고 싶은데 하나씩
+ * 눌러야 하면 쓸 수가 없다. 언어가 여러 개일 때만 보여 준다.
+ */
+function renderLanguageChips() {
+  const tracks = selectableTracks();
+  const languages = [...new Set(tracks.map(trackLanguage))];
+  ui.langChips.replaceChildren();
+  ui.langChips.hidden = languages.length < 2;
+  if (languages.length < 2) return;
+
+  for (const language of languages) {
+    const indexes = tracks
+      .filter((track) => trackLanguage(track) === language)
+      .map((track) => track.subtitleIndex);
+
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.dataset.lang = language;
+    chip.textContent = `${language} ${indexes.length}`;
+    chip.addEventListener('click', () => {
+      const allOn = indexes.every((index) => state.selected.has(index));
+      for (const index of indexes) {
+        if (allOn) state.selected.delete(index);
+        else state.selected.add(index);
+      }
+      renderTracks();
+      setBusy(state.busy);
+    });
+    ui.langChips.append(chip);
+  }
+}
+
+function setAllTracks(on) {
+  state.selected = on
+    ? new Set(selectableTracks().map((track) => track.subtitleIndex))
+    : new Set();
+  renderTracks();
+  setBusy(state.busy);
 }
 
 function addResult(fileName, cues) {
@@ -136,12 +222,20 @@ function addResult(fileName, cues) {
   const blob = new Blob([text], { type: 'application/x-subrip;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   state.objectUrls.push(url);
+  state.results.push({ name: fileName, text });
 
   const item = document.createElement('li');
   item.className = 'result';
 
   const head = document.createElement('div');
   head.className = 'result-head';
+
+  // 뽑은 자막이 여럿이면 하나씩 받기가 번거롭다. 골라서 한 번에 받게 한다.
+  const pick = document.createElement('input');
+  pick.type = 'checkbox';
+  pick.checked = true;
+  pick.dataset.name = fileName;
+  pick.addEventListener('change', updateResultCount);
 
   const label = document.createElement('div');
   const name = document.createElement('div');
@@ -158,7 +252,7 @@ function addResult(fileName, cues) {
   download.download = fileName;
   download.textContent = '내려받기';
 
-  head.append(label, download);
+  head.append(pick, label, download);
 
   const preview = document.createElement('pre');
   preview.className = 'preview';
@@ -170,13 +264,74 @@ function addResult(fileName, cues) {
   item.append(head, preview);
   ui.results.append(item);
   ui.resultSection.hidden = false;
+  updateResultCount();
+}
+
+function resultPicks() {
+  return [...ui.results.querySelectorAll('input[type="checkbox"]')];
+}
+
+function updateResultCount() {
+  const picks = resultPicks();
+  const chosen = picks.filter((pick) => pick.checked);
+  ui.resultCount.textContent = picks.length
+    ? `${picks.length}개 중 ${chosen.length}개 선택`
+    : '';
+  ui.downloadZip.disabled = state.busy || chosen.length === 0;
+  ui.resultAll.disabled = state.busy || chosen.length === picks.length;
+  ui.resultNone.disabled = state.busy || chosen.length === 0;
+  ui.downloadZip.textContent = chosen.length > 1
+    ? `${chosen.length}개 한 번에 받기 (zip)`
+    : '선택한 것 받기';
+}
+
+function setAllResults(on) {
+  for (const pick of resultPicks()) pick.checked = on;
+  updateResultCount();
+}
+
+/**
+ * 고른 결과를 한 번에 내려받는다.
+ *
+ * 여러 개면 zip 하나로 묶는다. 브라우저에게 파일 여러 개를 한꺼번에 내려받게
+ * 하면 '여러 파일 내려받기를 허용하시겠습니까' 를 묻거나 그냥 막아 버리는 일이
+ * 많은데, 특히 휴대폰에서 그렇다. 하나로 묶으면 그런 일이 없다.
+ */
+function downloadChosen() {
+  const wanted = new Set(resultPicks().filter((pick) => pick.checked).map((pick) => pick.dataset.name));
+  const chosen = state.results.filter((result) => wanted.has(result.name));
+  if (!chosen.length) return;
+
+  if (chosen.length === 1) {
+    saveBlob(new Blob([chosen[0].text], { type: 'application/x-subrip;charset=utf-8' }),
+             chosen[0].name);
+    return;
+  }
+
+  // 묶음 이름은 우리가 짓는 부분을 영문·숫자로만 둔다. 크로뮴은 내려받을 파일
+  // 이름이 시스템 로케일로 옮겨지지 않으면 이름 전체를 버리고 확장자 없는
+  // 'download' 로 저장해 버린다(로케일이 UTF-8 이 아닌 PC 에서 재현했다).
+  // 확장자를 잃으면 폰에서 zip 으로 열리지 않으므로, 한글은 쓰지 않는다.
+  const base = (state.file?.name ?? 'subtitles').replace(/\.[^.]+$/, '');
+  saveBlob(makeZip(chosen), `${base}.subtitles-${chosen.length}.zip`);
+}
+
+function saveBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  state.objectUrls.push(url);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  link.click();
 }
 
 function clearResults() {
   for (const url of state.objectUrls) URL.revokeObjectURL(url);
   state.objectUrls = [];
+  state.results = [];
   ui.results.replaceChildren();
   ui.resultSection.hidden = true;
+  updateResultCount();
 }
 
 // --- 동작 -----------------------------------------------------------------
@@ -229,7 +384,12 @@ async function openFile(file, indexText = null) {
     state.tracks = tracks;
     state.context = context;
 
-    state.selected = new Set(state.tracks.filter(isSupported).map((t) => t.subtitleIndex));
+    // 트랙이 몇 개 없으면 다 켜 두는 게 편하다. 스물 몇 개씩 되는 영화도 있는데
+    // 그때 전부 켜 두면 누르는 순간 필요 없는 것까지 다 뽑는다.
+    const selectable = state.tracks.filter(isSupported);
+    state.selected = new Set(
+      selectable.length <= AUTO_SELECT_LIMIT ? selectable.map((t) => t.subtitleIndex) : [],
+    );
     renderTracks();
     say(
       state.tracks.length
@@ -404,6 +564,11 @@ ui.file.addEventListener('change', () => {
 });
 
 ui.extract.addEventListener('click', extractSelected);
+ui.selectAll.addEventListener('click', () => setAllTracks(true));
+ui.selectNone.addEventListener('click', () => setAllTracks(false));
+ui.resultAll.addEventListener('click', () => setAllResults(true));
+ui.resultNone.addEventListener('click', () => setAllResults(false));
+ui.downloadZip.addEventListener('click', downloadChosen);
 
 for (const type of ['dragenter', 'dragover']) {
   ui.drop.addEventListener(type, (event) => {
