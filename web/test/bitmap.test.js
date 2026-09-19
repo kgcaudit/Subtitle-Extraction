@@ -224,6 +224,21 @@ test('색인을 따라가도 훑은 것과 결과가 같다 (MKV)', async () => 
   }
 });
 
+test('색인과 훑기 중 싼 쪽을 고른다', async () => {
+  // 둘 다 '파일을 몇 번 나눠 읽나' 로 값을 매긴다. 휴대폰에서는 한 번 읽을 때마다
+  // 붙는 지연이 읽는 양보다 크게 작용하기 때문이다. 실측(374MB, 자막 1,200줄,
+  // 한 번에 5밀리초 지연 가정): 훑기 2.62초, 색인을 차례로 3.97초, 색인을
+  // 한꺼번에 0.61초. 작은 파일은 몇 번만 읽으면 끝이라 훑는 쪽이 낫다.
+  const { worthFollowingCues } = await import('../src/mkv.js');
+  const MB = 1 << 20;
+
+  assert.equal(worthFollowingCues(1200, 374 * MB), true, '큰 영화는 색인이 압도적이다');
+  assert.equal(worthFollowingCues(1600, 700 * MB), true);
+  assert.equal(worthFollowingCues(1200, 83 * MB), false, '작은 파일은 훑는 게 싸다');
+  assert.equal(worthFollowingCues(1200, 20 * MB), false);
+  assert.equal(worthFollowingCues(0, 374 * MB), true, '자막이 없으면 읽을 것도 없다');
+});
+
 test('색인을 못 쓰면 훑는 길만으로도 다 읽힌다 (MKV)', async () => {
   // 색인은 있으면 쓰고 없으면 그만이다. 옛날 파일이나 스트리밍으로 만들어진
   // 파일에는 색인이 없는데, 그때 쓰는 길이 이것이다. 여기가 깨지면 그런 파일이

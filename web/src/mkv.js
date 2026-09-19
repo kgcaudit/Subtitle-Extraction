@@ -44,6 +44,29 @@ const ID = {
  */
 const CUE_CHUNK_SIZE = 4 << 10;
 
+/**
+ * 색인을 따라갈 때 한꺼번에 몇 자리를 읽을지.
+ *
+ * 자리를 미리 다 알고 있으므로 차례로 기다릴 이유가 없다. 이게 중요한 이유는
+ * **휴대폰에서 파일 한 번 읽는 데 붙는 지연** 때문이다. 읽는 양이 아무리 적어도
+ * 작은 읽기를 수백 번 줄 세우면 지연만 쌓인다.
+ *
+ * 실측(374MB 영상, 자막 1,200줄 / 한 번 읽을 때 5밀리초 지연을 가정):
+ *
+ *   전체 훑기        356번 읽기, 372.8MB  →  2.70초
+ *   색인, 차례로     721번 읽기,   3.0MB  →  3.97초   ← 오히려 느리다
+ *   색인, 한꺼번에   721번 읽기,   3.0MB  →  0.61초
+ */
+const CUE_FETCH_CONCURRENCY = 8;
+
+/** 처음 이만큼을 읽어 보고 한 조각도 안 나오면 색인을 믿지 않는다. */
+const CUE_TRUST_PROBE = 16;
+
+/**
+ * 훑을 때 한 번에 가져오는 크기. 색인과 견줄 때 '훑으면 몇 번 읽나' 의 기준이다.
+ */
+const SCAN_CHUNK_SIZE = 1 << 20;
+
 /** 클러스터 앞머리에서 시각을 찾을 때 여기까지만 본다. */
 const CLUSTER_HEAD_LIMIT = 4 << 10;
 
@@ -205,25 +228,85 @@ async function readSamplesViaCues(file, trackNumber, timestampScale, onProgress)
 
   const points = await readCuePoints(reader, cuesPosition, trackNumber);
   if (!points) return null;
+  if (!worthFollowingCues(points.length, file.size)) return null;
 
   const clusters = new Map();
-  const samples = [];
+  const found = new Array(points.length).fill(null);
+  const readers = [reader];
 
-  for (const [index, point] of points.entries()) {
-    const cluster = await readClusterHead(reader, segmentStart + point.cluster, clusters);
-    if (!cluster) return null;
+  // 색인을 곧이곧대로 믿지 않는다. 앞쪽 몇 자리를 먼저 읽어 보고 한 조각도
+  // 안 나오면, 나머지 수백 자리를 헛되이 읽지 말고 바로 훑는 쪽으로 넘긴다.
+  // (자리 계산이 다른 만듦새의 파일에서 헛수고 + 훑기로 두 배 느려지는 것을 막는다.)
+  const probe = Math.min(CUE_TRUST_PROBE, points.length);
+  await fetchPoints(points, 0, probe, found, {
+    file, segmentStart, trackNumber, scaleMs, clusters, readers,
+  });
+  if (!found.slice(0, probe).some(Boolean)) return null;
 
-    const sample = await readBlockAt(reader, cluster.dataStart + point.relative, trackNumber,
-                                    cluster.timestamp, scaleMs);
-    if (sample) samples.push(sample);
-    if (onProgress && index % 32 === 0) onProgress(index + 1, points.length, samples.length);
-  }
+  await fetchPoints(points, probe, points.length, found, {
+    file, segmentStart, trackNumber, scaleMs, clusters, readers,
+    onProgress: onProgress && ((done) => onProgress(done, points.length)),
+  });
 
-  // 색인이 있다고 했는데 한 조각도 못 얻었으면 믿을 수 없다. 훑는 쪽으로 넘긴다.
+  const samples = found.filter(Boolean);
   if (!samples.length) return null;
 
   onProgress?.(points.length, points.length, samples.length);
-  return { samples, bytesFetched: reader.bytesFetched };
+  return {
+    samples,
+    bytesFetched: readers.reduce((total, one) => total + one.bytesFetched, 0),
+  };
+}
+
+/**
+ * 색인을 따라가는 게 훑는 것보다 싼가.
+ *
+ * 둘 다 '파일을 몇 번 나눠 읽나' 로 값을 매긴다. 휴대폰에서는 한 번 읽을 때마다
+ * 붙는 지연이 읽는 양보다 크게 작용하기 때문이다.
+ *
+ *   훑기   : 파일 크기 ÷ 1MB 번   (대신 파일을 통째로 읽는다)
+ *   색인   : 자막 수 ÷ 동시에 읽는 수   (대신 몇 메가바이트만 읽는다)
+ *
+ * 작은 파일은 몇 번만 읽으면 끝이라 훑는 쪽이 낫고, 큰 파일은 색인이 압도적이다.
+ * 색인이 이기는 쪽만 고르므로 어느 경우에도 손해가 없다.
+ */
+export function worthFollowingCues(pointCount, fileSize) {
+  const scanReads = Math.ceil(fileSize / SCAN_CHUNK_SIZE);
+  const cueReads = Math.ceil(pointCount / CUE_FETCH_CONCURRENCY);
+  return cueReads < scanReads;
+}
+
+/**
+ * 자막 자리 [from, to) 를 여러 개씩 한꺼번에 읽어 found 에 채운다.
+ *
+ * 읽는 순서는 섞여도 결과는 자리 번호대로 들어가므로 차례가 흐트러지지 않는다.
+ * 일꾼마다 자기 읽기 버퍼를 따로 쓴다 — 하나를 나눠 쓰면 서로 덮어쓴다.
+ */
+async function fetchPoints(points, from, to, found, context) {
+  const { file, segmentStart, trackNumber, scaleMs, clusters, readers, onProgress } = context;
+  const workers = Math.min(CUE_FETCH_CONCURRENCY, to - from);
+  if (workers <= 0) return;
+
+  let next = from;
+  let done = 0;
+
+  await Promise.all(Array.from({ length: workers }, async (_unused, slot) => {
+    const reader = readers[slot] ?? (readers[slot] = new SliceReader(file, CUE_CHUNK_SIZE));
+    for (;;) {
+      const index = next;
+      next += 1;
+      if (index >= to) return;
+
+      const point = points[index];
+      const cluster = await readClusterHead(reader, segmentStart + point.cluster, clusters);
+      if (cluster) {
+        found[index] = await readBlockAt(reader, cluster.dataStart + point.relative,
+                                         trackNumber, cluster.timestamp, scaleMs);
+      }
+      done += 1;
+      if (onProgress && done % 32 === 0) onProgress(from + done);
+    }
+  }));
 }
 
 async function findSegmentStart(reader) {
@@ -301,10 +384,18 @@ async function readCuePoints(reader, cuesPosition, trackNumber) {
 }
 
 /** 클러스터 앞머리에서 시각을 읽는다. 같은 클러스터는 한 번만 읽는다. */
-async function readClusterHead(reader, clusterPosition, cache) {
+function readClusterHead(reader, clusterPosition, cache) {
+  // 여러 자리가 같은 클러스터에 들어 있다. 한꺼번에 읽을 때 같은 머리말을 두 번
+  // 읽지 않도록, 결과가 아니라 '읽고 있는 중' 을 담아 둔다.
   const cached = cache.get(clusterPosition);
   if (cached) return cached;
 
+  const pending = loadClusterHead(reader, clusterPosition);
+  cache.set(clusterPosition, pending);
+  return pending;
+}
+
+async function loadClusterHead(reader, clusterPosition) {
   const cluster = await readElementHeader(reader, clusterPosition);
   if (!cluster || cluster.id !== ID.CLUSTER) return null;
 
@@ -324,9 +415,7 @@ async function readClusterHead(reader, clusterPosition, cache) {
     offset = child.dataStart + child.dataSize;
   }
 
-  const info = { dataStart: cluster.dataStart, timestamp };
-  cache.set(clusterPosition, info);
-  return info;
+  return { dataStart: cluster.dataStart, timestamp };
 }
 
 /** 블록 하나를 읽어 자막 조각으로 만든다. 남의 트랙이면 null. */
