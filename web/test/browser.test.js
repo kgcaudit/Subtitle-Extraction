@@ -32,8 +32,13 @@ async function loadPlaywright() {
   }
 }
 
-/** 브라우저와 개발 서버를 띄우고 page 를 넘겨준다. */
-async function withPage(run) {
+/**
+ * 브라우저와 개발 서버를 띄우고 page 를 넘겨준다.
+ *
+ * `prepare` 는 페이지를 열기 전에 불린다 — 스크립트가 돌기 전에 손봐야 하는
+ * 것(브라우저 기능을 흉내 내거나 없애는 일)에 쓴다.
+ */
+async function withPage(run, { prepare } = {}) {
   const playwright = await loadPlaywright();
   const { createStaticServer } = await import('../tools/serve.js');
   const server = createStaticServer();
@@ -50,6 +55,7 @@ async function withPage(run) {
     const page = await browser.newPage();
     const pageErrors = [];
     page.on('pageerror', (error) => pageErrors.push(error.message));
+    if (prepare) await prepare(page);
     await page.goto(`http://127.0.0.1:${port}/index.html`);
     await run(page, pageErrors);
   } finally {
@@ -539,4 +545,175 @@ test('미리보기가 자막마다 시작 시각을 앞에 붙인다', { timeout
     assert.equal(lines[0], 'Hello world\nsecond line');
     assert.equal(lines[1], '안녕하세요 자막입니다');
   });
+});
+
+/** 폴더 고르기 창을 흉내 낸다. 진짜 창은 브라우저 것이라 시험에서 열 수 없다. */
+const FAKE_PICKER = `
+  window.__written = {};
+  window.__permissionAsked = 0;
+  window.showDirectoryPicker = async () => ({
+    name: '자막모음',
+    queryPermission: async () => 'prompt',
+    requestPermission: async () => { window.__permissionAsked += 1; return 'granted'; },
+    getFileHandle: async (name) => ({
+      createWritable: async () => ({
+        write: async (text) => { window.__written[name] = text; },
+        close: async () => {},
+      }),
+    }),
+  });
+`;
+
+/**
+ * 고른 폴더에 바로 쓴다.
+ *
+ * 브라우저에 맡기면 '다운로드' 폴더에 떨어지고, 폰에서는 그걸 다시 찾아
+ * 들어가야 한다. 폴더를 한 번 골라 두면 그 뒤로는 거기에 바로 쓴다.
+ */
+test('폴더를 고르면 zip 으로 묶지 않고 그 폴더에 파일 그대로 쓴다', { timeout: 300000 }, async (t) => {
+  if (!(await loadPlaywright())) return t.skip(skipReason);
+
+  await withPage(async (page, pageErrors) => {
+    await page.setInputFiles('#file', fixture('many.mkv'));
+    await page.waitForFunction(
+      () => document.querySelectorAll('#tracks .track').length === 8,
+      { timeout: 30000 },
+    );
+    await page.click('#langChips button[data-lang="KOR"]');
+    await page.click('#langChips button[data-lang="ENG"]');
+    await page.click('#extract');
+    await page.waitForFunction(
+      () => document.querySelectorAll('#results .result').length === 2,
+      { timeout: 300000 },
+    );
+
+    // 고르기 전에는 브라우저 기본이고, 단추는 예전 그대로다.
+    assert.ok(await page.isVisible('#saveTo'), '폴더를 고를 수 있는 브라우저입니다');
+    assert.equal(await page.textContent('#saveDirName'), '브라우저 기본(다운로드 폴더)');
+    assert.equal(await page.textContent('#downloadZip'), '2개 한 번에 받기 (zip)');
+    assert.ok(await page.isHidden('#clearDir'));
+
+    await page.click('#pickDir');
+    await page.waitForFunction(() => document.getElementById('saveDirName').textContent === '자막모음');
+    assert.equal(await page.textContent('#pickDir'), '바꾸기');
+    assert.ok(await page.isVisible('#clearDir'));
+    assert.equal(await page.textContent('#downloadZip'), '2개 폴더에 저장', 'zip 으로 묶을 이유가 없습니다');
+
+    await page.click('#downloadZip');
+    await page.waitForFunction(() => Object.keys(window.__written).length === 2, { timeout: 10000 });
+    const written = await page.evaluate(() => window.__written);
+    assert.deepEqual(Object.keys(written).sort(), ['many.eng.srt', 'many.kor.srt']);
+    // 내용은 내려받았을 때와 같아야 한다.
+    assert.equal(written['many.eng.srt'], readFileSync(fixture('expected.eng.srt'), 'utf8'));
+    assert.match(await page.textContent('#status'), /'자막모음' 폴더에 2개를 저장했습니다/);
+    // 단추는 화면 아래에 있다. 누른 자리에서도 보여야 한다.
+    assert.equal(await page.textContent('#resultCount'), "'자막모음' 폴더에 저장함");
+    assert.equal(await page.evaluate(() => window.__permissionAsked), 1, '허락은 한 번만 묻습니다');
+
+    // 항목마다 있는 '내려받기' 도 같은 폴더로 간다.
+    await page.evaluate(() => { window.__written = {}; });
+    await page.click('#results .result:first-child a');
+    await page.waitForFunction(() => Object.keys(window.__written).length === 1, { timeout: 10000 });
+    assert.deepEqual(Object.keys(await page.evaluate(() => window.__written)), ['many.eng.srt']);
+
+    // 기본으로 되돌리면 다시 zip 이다.
+    await page.click('#clearDir');
+    await page.waitForFunction(
+      () => document.getElementById('saveDirName').textContent === '브라우저 기본(다운로드 폴더)',
+    );
+    assert.equal(await page.textContent('#downloadZip'), '2개 한 번에 받기 (zip)');
+    assert.deepEqual(pageErrors, [], '브라우저에서 오류가 났습니다');
+  }, { prepare: (page) => page.addInitScript(FAKE_PICKER) });
+});
+
+test('폴더를 못 고르는 브라우저에서는 그 줄을 아예 보여 주지 않는다', { timeout: 300000 }, async (t) => {
+  if (!(await loadPlaywright())) return t.skip(skipReason);
+
+  // 사파리·파이어폭스에는 이 기능이 없다. 그 경우를 흉내 낸다.
+  await withPage(async (page, pageErrors) => {
+    await page.setInputFiles('#file', fixture('many.mkv'));
+    await page.waitForFunction(
+      () => document.querySelectorAll('#tracks .track').length === 8,
+      { timeout: 30000 },
+    );
+    await page.click('#langChips button[data-lang="KOR"]');
+    await page.click('#extract');
+    await page.waitForFunction(
+      () => document.querySelectorAll('#results .result').length === 1,
+      { timeout: 300000 },
+    );
+    assert.ok(await page.isHidden('#saveTo'), '못 하는 일을 보여 주면 안 됩니다');
+    assert.equal(await page.textContent('#downloadZip'), '선택한 것 받기');
+
+    // 그래도 받는 데는 지장이 없어야 한다.
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.click('#downloadZip'),
+    ]);
+    assert.equal(download.suggestedFilename(), 'many.kor.srt');
+    assert.deepEqual(pageErrors, [], '브라우저에서 오류가 났습니다');
+  }, { prepare: (page) => page.addInitScript('delete window.showDirectoryPicker;') });
+});
+
+/**
+ * 진짜 파일 시스템 구현으로 한 번 더 본다.
+ *
+ * 위 시험은 폴더 손잡이를 우리가 흉내 낸 것이라, 우리 흉내가 브라우저 규격과
+ * 어긋나 있으면 통과해도 실제로는 안 될 수 있다. 여기서는 브라우저가 진짜로
+ * 만들어 주는 FileSystemDirectoryHandle(원본 전용 파일 시스템)을 쓴다 —
+ * 창을 띄우는 부분만 대신하고, 파일을 만들고 쓰는 길은 전부 진짜다.
+ */
+const REAL_HANDLE_PICKER = `
+  window.showDirectoryPicker = async () =>
+    (await navigator.storage.getDirectory()).getDirectoryHandle('자막모음', { create: true });
+`;
+
+test('진짜 폴더 손잡이로도 파일이 그대로 쓰이고, 다시 열어도 그 폴더를 기억한다', { timeout: 300000 }, async (t) => {
+  if (!(await loadPlaywright())) return t.skip(skipReason);
+
+  await withPage(async (page, pageErrors) => {
+    await page.setInputFiles('#file', fixture('many.mkv'));
+    await page.waitForFunction(
+      () => document.querySelectorAll('#tracks .track').length === 8,
+      { timeout: 30000 },
+    );
+    await page.click('#langChips button[data-lang="KOR"]');
+    await page.click('#extract');
+    await page.waitForFunction(
+      () => document.querySelectorAll('#results .result').length === 1,
+      { timeout: 300000 },
+    );
+
+    await page.click('#pickDir');
+    await page.waitForFunction(() => document.getElementById('saveDirName').textContent === '자막모음');
+    await page.click('#downloadZip');
+    await page.waitForFunction(
+      () => document.getElementById('status').textContent.includes('폴더에 1개를 저장'),
+      { timeout: 10000 },
+    );
+
+    // 브라우저가 실제로 만든 파일을 다시 읽어 본다.
+    const saved = await page.evaluate(async () => {
+      const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('자막모음');
+      const file = await (await dir.getFileHandle('many.kor.srt')).getFile();
+      return { name: file.name, text: await file.text() };
+    });
+    assert.equal(saved.name, 'many.kor.srt');
+
+    // 폴더에 쓴 것과 그냥 내려받았을 때의 내용이 같아야 한다.
+    const asDownloaded = await page.evaluate(async () => {
+      const link = document.querySelector('#results .result a');
+      return (await fetch(link.href)).text();
+    });
+    assert.equal(saved.text, asDownloaded, '폴더에 쓴 내용이 내려받은 것과 다릅니다');
+    assert.match(saved.text, /^1\n00:00:01,000 --> 00:00:03,500\n/, 'SRT 모양이 아닙니다');
+
+    // 창을 닫았다 열어도 폴더를 기억해야 한다(IndexedDB 에 담아 둔다).
+    await page.reload();
+    await page.waitForFunction(
+      () => document.getElementById('saveDirName').textContent === '자막모음',
+      { timeout: 10000 },
+    );
+    assert.deepEqual(pageErrors, [], '브라우저에서 오류가 났습니다');
+  }, { prepare: (page) => page.addInitScript(REAL_HANDLE_PICKER) });
 });

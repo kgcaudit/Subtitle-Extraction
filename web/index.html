@@ -96,6 +96,12 @@
 
   <section id="resultSection" hidden>
     <h2>결과</h2>
+    <!-- 폴더 지정이 되는 브라우저에서만 보인다(크롬·엣지. 사파리는 안 된다). -->
+    <p class="saveto" id="saveTo" hidden>
+      저장 위치 <strong id="saveDirName">브라우저 기본(다운로드 폴더)</strong>
+      <button id="pickDir" type="button">폴더 지정</button>
+      <button id="clearDir" type="button" hidden>기본으로</button>
+    </p>
     <div class="toolbar">
       <span class="spacer"></span>
       <button id="resultAll" type="button">전체 선택</button>

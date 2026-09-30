@@ -18,6 +18,10 @@ import { OcrPool, pickLanguage } from './ocr.js';
 import { tidy } from './postprocess.js';
 import { render, formatTimestamp } from './srt.js';
 import { makeZip } from './zip.js';
+import {
+  canPickFolder, loadFolder, rememberFolder, forgetFolder,
+  pickFolder, ensureWritable, writeFiles,
+} from './saveTo.js';
 
 const ui = {
   drop: document.getElementById('drop'),
@@ -46,6 +50,10 @@ const ui = {
   dropOpen: document.getElementById('dropOpen'),
   openName: document.getElementById('openName'),
   openMeta: document.getElementById('openMeta'),
+  saveTo: document.getElementById('saveTo'),
+  saveDirName: document.getElementById('saveDirName'),
+  pickDir: document.getElementById('pickDir'),
+  clearDir: document.getElementById('clearDir'),
 };
 
 /** 그림 자막 인식 설정. 측정해 보면 자료에 따라 최선이 달라 고를 수 있게 했다. */
@@ -63,6 +71,9 @@ const AUTO_SELECT_LIMIT = 5;
 /** 결과마다 미리 보여 줄 자막 개수. */
 const PREVIEW_CUES = 5;
 
+/** 받기 단추 옆 알림이 머무는 시간. */
+const BAR_NOTICE_MS = 4000;
+
 const state = {
   file: null,
   indexText: null,
@@ -75,6 +86,8 @@ const state = {
   busy: false,
   objectUrls: [],
   results: [],
+  // 골라 둔 저장 폴더(File System Access). 없으면 브라우저에 맡긴다.
+  saveDir: null,
   languageNotice: null,
 };
 
@@ -309,6 +322,13 @@ function addResult(fileName, cues) {
   download.href = url;
   download.download = fileName;
   download.textContent = '내려받기';
+  // 폴더를 골라 뒀으면 거기에 쓴다. 아니면 <a download> 그대로 브라우저에 맡긴다
+  // (PC 에서 '다른 이름으로 링크 저장' 도 살아 있다).
+  download.addEventListener('click', (event) => {
+    if (!state.saveDir) return;
+    event.preventDefault();
+    saveChosen([{ name: fileName, text }]);
+  });
 
   head.append(pick, label, download);
 
@@ -339,6 +359,7 @@ function resultPicks() {
 }
 
 function updateResultCount() {
+  clearTimeout(barNotice);
   const picks = resultPicks();
   const chosen = picks.filter((pick) => pick.checked);
   ui.resultCount.textContent = picks.length
@@ -347,9 +368,15 @@ function updateResultCount() {
   ui.downloadZip.disabled = state.busy || chosen.length === 0;
   ui.resultAll.disabled = state.busy || chosen.length === picks.length;
   ui.resultNone.disabled = state.busy || chosen.length === 0;
-  ui.downloadZip.textContent = chosen.length > 1
-    ? `${chosen.length}개 한 번에 받기 (zip)`
-    : '선택한 것 받기';
+  if (state.saveDir) {
+    ui.downloadZip.textContent = chosen.length > 1
+      ? `${chosen.length}개 폴더에 저장`
+      : '폴더에 저장';
+  } else {
+    ui.downloadZip.textContent = chosen.length > 1
+      ? `${chosen.length}개 한 번에 받기 (zip)`
+      : '선택한 것 받기';
+  }
 }
 
 function setAllResults(on) {
@@ -378,7 +405,30 @@ function showResults() {
 function downloadChosen() {
   const wanted = new Set(resultPicks().filter((pick) => pick.checked).map((pick) => pick.dataset.name));
   const chosen = state.results.filter((result) => wanted.has(result.name));
-  if (!chosen.length) return;
+  if (chosen.length) saveChosen(chosen);
+}
+
+/**
+ * 고른 자막을 저장한다.
+ *
+ * 폴더를 골라 뒀으면 거기에 **파일 그대로** 쓴다 — 묶을 이유가 없고, 푸는 수고도
+ * 없다. 폴더가 없거나 쓰기가 막히면 예전처럼 브라우저에 맡긴다. 어느 쪽이든
+ * 자막을 못 받는 일은 없어야 한다.
+ *
+ * 허락을 묻는 창은 사용자가 누른 직후에만 뜬다. 그래서 다른 일을 기다리기 전에
+ * ensureWritable 부터 부른다.
+ */
+async function saveChosen(chosen) {
+  if (state.saveDir && (await ensureWritable(state.saveDir))) {
+    try {
+      await writeFiles(state.saveDir, chosen);
+      say(`'${state.saveDir.name}' 폴더에 ${chosen.length}개를 저장했습니다.`);
+      sayInBar(`'${state.saveDir.name}' 폴더에 저장함`);
+      return;
+    } catch (error) {
+      say(`폴더에 쓰지 못해 그냥 내려받습니다: ${error.message}`, true);
+    }
+  }
 
   if (chosen.length === 1) {
     saveBlob(new Blob([chosen[0].text], { type: 'application/x-subrip;charset=utf-8' }),
@@ -392,6 +442,29 @@ function downloadChosen() {
   // 확장자를 잃으면 폰에서 zip 으로 열리지 않으므로, 한글은 쓰지 않는다.
   const base = (state.file?.name ?? 'subtitles').replace(/\.[^.]+$/, '');
   saveBlob(makeZip(chosen), `${base}.subtitles-${chosen.length}.zip`);
+}
+
+/**
+ * 받기 단추 옆에 잠깐 알린다.
+ *
+ * 상태 글은 페이지 맨 위에 있는데 단추는 화면 아래에 있다. 누른 자리에서
+ * 보이지 않으면 저장이 됐는지 알 수가 없다.
+ */
+let barNotice = null;
+function sayInBar(message) {
+  clearTimeout(barNotice);
+  ui.resultCount.textContent = message;
+  barNotice = setTimeout(updateResultCount, BAR_NOTICE_MS);
+}
+
+/** 저장 위치 줄을 다시 그린다. 폴더를 못 고르는 브라우저에서는 아예 감춘다. */
+function renderSaveTo() {
+  ui.saveTo.hidden = !canPickFolder();
+  const folder = state.saveDir;
+  ui.saveDirName.textContent = folder ? folder.name : '브라우저 기본(다운로드 폴더)';
+  ui.pickDir.textContent = folder ? '바꾸기' : '폴더 지정';
+  ui.clearDir.hidden = !folder;
+  updateResultCount();
 }
 
 function saveBlob(blob, fileName) {
@@ -651,6 +724,32 @@ ui.selectNone.addEventListener('click', () => setAllTracks(false));
 ui.resultAll.addEventListener('click', () => setAllResults(true));
 ui.resultNone.addEventListener('click', () => setAllResults(false));
 ui.downloadZip.addEventListener('click', downloadChosen);
+
+ui.pickDir.addEventListener('click', async () => {
+  try {
+    const folder = await pickFolder();
+    if (!folder) return;                 // 그냥 닫았다
+    state.saveDir = folder;
+    await rememberFolder(folder);
+    renderSaveTo();
+    say(`'${folder.name}' 폴더에 저장합니다.`);
+  } catch (error) {
+    say(`폴더를 고르지 못했습니다: ${error.message}`, true);
+  }
+});
+
+ui.clearDir.addEventListener('click', async () => {
+  state.saveDir = null;
+  await forgetFolder();
+  renderSaveTo();
+  say('브라우저 기본 위치(다운로드 폴더)로 되돌렸습니다.');
+});
+
+// 지난번에 고른 폴더가 있으면 되살린다. 창을 닫았다 열어도 남는다.
+loadFolder().then((folder) => {
+  state.saveDir = folder;
+  renderSaveTo();
+});
 
 for (const type of ['dragenter', 'dragover']) {
   ui.drop.addEventListener(type, (event) => {
