@@ -1,7 +1,7 @@
 // MKV(Matroska)/WebM 의 자막 트랙만 뽑아낸다.
 // 자막 블록만 모으므로 파일 전체를 메모리에 올리지 않는다.
 
-import { SliceReader, readAscii } from './reader.js';
+import { SliceReader, readAscii, readUtf8 } from './reader.js';
 
 const ID = {
   SEGMENT: 0x18538067,
@@ -12,7 +12,14 @@ const ID = {
   TRACK_NUMBER: 0xd7,
   TRACK_TYPE: 0x83,
   FLAG_DEFAULT: 0x88,
+  // 자막 종류 표시. mkvmerge 가 쓴 파일에서 번호를 직접 확인했다.
   FLAG_FORCED: 0x55aa,
+  FLAG_HEARING_IMPAIRED: 0x55ab,
+  FLAG_VISUAL_IMPAIRED: 0x55ac,
+  FLAG_TEXT_DESCRIPTIONS: 0x55ad,
+  FLAG_ORIGINAL: 0x55ae,
+  FLAG_COMMENTARY: 0x55af,
+  NAME: 0x536e,
   CODEC_ID: 0x86,
   CODEC_PRIVATE: 0x63a2,
   LANGUAGE: 0x22b59c,
@@ -165,9 +172,23 @@ async function readTrackEntry(reader, element) {
     trackType: 0,
     codecId: '',
     language: null,
+    // 옛 Language(ISO 639-2)와 LanguageIETF(BCP 47) 둘 다 들어 있을 수 있다.
+    // 규격상 IETF 가 우선이라 따로 받아 두고 마지막에 고른다 — 덮어쓰기에
+    // 맡기면 파일에 적힌 순서에 결과가 달라진다.
+    languageLegacy: null,
+    languageIetf: null,
+    name: null,
     codecPrivate: null,
-    default: false,
+    // FlagDefault 는 적혀 있지 않으면 1 이다(규격 기본값). false 로 두면 '기본'
+    // 트랙을 기본이 아니라고 읽게 된다 — mkvmerge 도 ffprobe 도 1 로 읽는 것을
+    // 실제 파일로 확인했다.
+    default: true,
     forced: false,
+    hearingImpaired: false,
+    visualImpaired: false,
+    textDescriptions: false,
+    original: false,
+    commentary: false,
   };
 
   while (offset < end) {
@@ -178,17 +199,24 @@ async function readTrackEntry(reader, element) {
       case ID.TRACK_NUMBER: entry.trackNumber = readUint(data); break;
       case ID.TRACK_TYPE: entry.trackType = readUint(data); break;
       case ID.CODEC_ID: entry.codecId = readAscii(data); break;
-      case ID.LANGUAGE:
-      case ID.LANGUAGE_IETF: entry.language = readAscii(data) || entry.language; break;
+      case ID.LANGUAGE: entry.languageLegacy = readAscii(data) || entry.languageLegacy; break;
+      case ID.LANGUAGE_IETF: entry.languageIetf = readAscii(data) || entry.languageIetf; break;
+      case ID.NAME: entry.name = readUtf8(data) || entry.name; break;
       case ID.CODEC_PRIVATE: entry.codecPrivate = new Uint8Array(data); break;
       case ID.FLAG_DEFAULT: entry.default = readUint(data) === 1; break;
       case ID.FLAG_FORCED: entry.forced = readUint(data) === 1; break;
+      case ID.FLAG_HEARING_IMPAIRED: entry.hearingImpaired = readUint(data) === 1; break;
+      case ID.FLAG_VISUAL_IMPAIRED: entry.visualImpaired = readUint(data) === 1; break;
+      case ID.FLAG_TEXT_DESCRIPTIONS: entry.textDescriptions = readUint(data) === 1; break;
+      case ID.FLAG_ORIGINAL: entry.original = readUint(data) === 1; break;
+      case ID.FLAG_COMMENTARY: entry.commentary = readUint(data) === 1; break;
       default: break;
     }
     offset = child.dataStart + child.dataSize;
   }
 
   if (entry.trackType !== 17) return null; // 17 = 자막
+  entry.language = entry.languageIetf || entry.languageLegacy;
   entry.mimeType = CODEC_MIME[entry.codecId] || entry.codecId;
   return entry;
 }

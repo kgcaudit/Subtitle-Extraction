@@ -57,3 +57,16 @@ export function readAscii(bytes) {
   for (const byte of bytes) if (byte) text += String.fromCharCode(byte);
   return text;
 }
+
+/**
+ * UTF-8 문자열 요소를 읽는다 — 마트로스카의 트랙 이름 같은 것.
+ *
+ * readAscii 로 읽으면 한글이나 악센트가 든 이름이 깨진다. 끝을 0 으로 채워 둔
+ * 경우가 있어 뒤쪽 0 은 떼어 낸다.
+ */
+const utf8Decoder = new TextDecoder();
+export function readUtf8(bytes) {
+  let end = bytes.length;
+  while (end > 0 && bytes[end - 1] === 0) end -= 1;
+  return utf8Decoder.decode(bytes.subarray(0, end));
+}

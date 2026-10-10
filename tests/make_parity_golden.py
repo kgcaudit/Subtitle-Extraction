@@ -10,9 +10,11 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from subex.postprocess import tidy
+from subex.probe import SubtitleTrack
 from subex.srt import parse_srt, render_srt
 
 #: (이름, 설명, SRT 원문) — 까다로운 경우만 골라 모았다.
@@ -83,6 +85,19 @@ CASES: list[tuple[str, str, str]] = [
     ),
 ]
 
+#: 출력 파일 이름에 붙는 꼬리표. 같은 영상에서 두 구현이 다른 이름을 내놓으면
+#: 안 되므로, 파이썬이 내는 값을 그대로 적어 두고 웹이 맞춰 본다.
+SLUG_CASES: list[tuple[str | None, bool, bool]] = [
+    ("kor", False, False),
+    ("kor", True, False),
+    ("eng", False, True),
+    ("eng", True, True),
+    ("und", False, False),
+    (None, False, False),
+    (None, True, False),
+    ("pt-BR", False, True),
+]
+
 SEPARATOR = "=" * 8
 
 
@@ -99,11 +114,32 @@ def build() -> str:
     return f"{SEPARATOR} end\n".join(blocks) + f"{SEPARATOR} end\n"
 
 
+def build_slugs() -> str:
+    rows = []
+    for language, forced, hearing in SLUG_CASES:
+        track = SubtitleTrack(
+            index=0, sub_index=0, codec="subrip", language=language, title=None,
+            default=False, forced=forced, hearing_impaired=hearing,
+        )
+        rows.append({
+            "language": language,
+            "forced": forced,
+            "hearingImpaired": hearing,
+            "slug": track.slug(),
+        })
+    return json.dumps(rows, ensure_ascii=False, indent=2) + "\n"
+
+
 def main() -> None:
-    target = Path(__file__).resolve().parent.parent / "web/test/fixtures/parity.txt"
+    root = Path(__file__).resolve().parent.parent
+    target = root / "web/test/fixtures/parity.txt"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(build(), encoding="utf-8", newline="\n")
     print(f"{len(CASES)}개 경우를 {target} 에 기록했습니다.")
+
+    slugs = root / "web/test/fixtures/slugs.json"
+    slugs.write_text(build_slugs(), encoding="utf-8", newline="\n")
+    print(f"꼬리표 {len(SLUG_CASES)}개를 {slugs} 에 기록했습니다.")
 
 
 if __name__ == "__main__":

@@ -393,7 +393,7 @@ test('자막이 많으면 스스로 고르지 않고, 전체 선택·언어별 �
         'print("\\n".join(z.namelist()))',
       ].join('\n'), saved], { encoding: 'utf8' }).trim().split('\n');
       assert.equal(names.length, 3, `묶인 파일: ${names.join(', ')}`);
-      assert.deepEqual(names, ['many.eng.srt', 'many.jpn.srt', 'many.spa.srt']);
+      assert.deepEqual(names, ['many.eng.sdh.srt', 'many.jpn.forced.srt', 'many.spa.srt']);
     } finally {
       rmSync(saved, { force: true });
     }
@@ -602,9 +602,9 @@ test('폴더를 고르면 zip 으로 묶지 않고 그 폴더에 파일 그대�
     await page.click('#downloadZip');
     await page.waitForFunction(() => Object.keys(window.__written).length === 2, { timeout: 10000 });
     const written = await page.evaluate(() => window.__written);
-    assert.deepEqual(Object.keys(written).sort(), ['many.eng.srt', 'many.kor.srt']);
+    assert.deepEqual(Object.keys(written).sort(), ['many.eng.sdh.srt', 'many.kor.srt']);
     // 내용은 내려받았을 때와 같아야 한다.
-    assert.equal(written['many.eng.srt'], readFileSync(fixture('expected.eng.srt'), 'utf8'));
+    assert.equal(written['many.eng.sdh.srt'], readFileSync(fixture('expected.eng.srt'), 'utf8'));
     assert.match(await page.textContent('#status'), /'자막모음' 폴더에 2개를 저장했습니다/);
     // 단추는 화면 아래에 있다. 누른 자리에서도 보여야 한다.
     assert.equal(await page.textContent('#resultCount'), "'자막모음' 폴더에 저장함");
@@ -614,7 +614,7 @@ test('폴더를 고르면 zip 으로 묶지 않고 그 폴더에 파일 그대�
     await page.evaluate(() => { window.__written = {}; });
     await page.click('#results .result:first-child a');
     await page.waitForFunction(() => Object.keys(window.__written).length === 1, { timeout: 10000 });
-    assert.deepEqual(Object.keys(await page.evaluate(() => window.__written)), ['many.eng.srt']);
+    assert.deepEqual(Object.keys(await page.evaluate(() => window.__written)), ['many.eng.sdh.srt']);
 
     // 기본으로 되돌리면 다시 zip 이다.
     await page.click('#clearDir');
@@ -716,4 +716,46 @@ test('진짜 폴더 손잡이로도 파일이 그대로 쓰이고, 다시 열어
     );
     assert.deepEqual(pageErrors, [], '브라우저에서 오류가 났습니다');
   }, { prepare: (page) => page.addInitScript(REAL_HANDLE_PICKER) });
+});
+
+/**
+ * 목록이 우리말로 읽히는지, 자막 종류가 보이는지.
+ *
+ * 'ko', 'en' 같은 코드만으로는 무엇을 뽑는지 알 수 없었다. 영어 자막이 다섯
+ * 개씩 들어 있는 파일에서는 더더욱 그렇다.
+ */
+test('트랙 목록이 우리말 언어 이름과 자막 종류를 보여 준다', { timeout: 300000 }, async (t) => {
+  if (!(await loadPlaywright())) return t.skip(skipReason);
+
+  await withPage(async (page, pageErrors) => {
+    await page.setInputFiles('#file', fixture('many.mkv'));
+    await page.waitForFunction(
+      () => document.querySelectorAll('#tracks .track').length === 8,
+      { timeout: 30000 },
+    );
+
+    const titles = await page.$$eval('#tracks .track-title', (els) =>
+      els.map((el) => el.firstChild.textContent.trim()));
+    assert.deepEqual(titles, [
+      '#0 영어 · SubRip', '#1 한국어 · SubRip', '#2 일본어 · SubRip', '#3 프랑스어 · SubRip',
+      '#4 독일어 · SubRip', '#5 스페인어 · SubRip', '#6 중국어 · SubRip', '#7 언어 미지정 · SubRip',
+    ]);
+
+    // 자막 종류는 파일에 적힌 트랙에만 붙는다.
+    const badges = await page.$$eval('#tracks .track', (els) =>
+      els.map((el) => [...el.querySelectorAll('.badge')].map((b) => b.textContent).join('/')));
+    assert.deepEqual(badges, ['청각장애인용', '기본', '강제', '', '', '', '', '']);
+
+    // 만든 사람이 붙여 둔 이름도 그대로 — 한글 이름이 깨지지 않아야 한다.
+    const given = await page.$$eval('#tracks .track-given', (els) => els.map((el) => el.textContent));
+    assert.deepEqual(given, ['English SDH', '한국어 (오역 수정)', 'Forced (Signs)']);
+
+    // 언어 알약도 우리말로.
+    const chips = await page.$$eval('#langChips button', (els) => els.map((el) => el.textContent));
+    assert.deepEqual(chips, [
+      '영어 1', '한국어 1', '일본어 1', '프랑스어 1',
+      '독일어 1', '스페인어 1', '중국어 1', '언어 미지정 1',
+    ]);
+    assert.deepEqual(pageErrors, [], '브라우저에서 오류가 났습니다');
+  });
 });

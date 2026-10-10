@@ -324,3 +324,24 @@ button:disabled { opacity: 0.5; cursor: default; }
 }
 .saveto strong { color: var(--ink); word-break: break-all; }
 .saveto button { padding: 6px 12px; font-size: 0.9rem; }
+
+/* --- 자막 종류 표시 (강제 · 청각장애인용 …) --- */
+.badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--ground);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  vertical-align: 2px;
+  white-space: nowrap;
+}
+/* 만든 사람이 붙여 둔 트랙 이름. 우리 설명과 섞이지 않게 따옴표로 묶는다. */
+.track-given {
+  color: var(--ink);
+  font-size: 0.85rem;
+}
+.track-given::before { content: '“'; }
+.track-given::after { content: '”'; }

@@ -175,6 +175,13 @@ def main() -> None:
     command += ["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:s", "copy"]
     for index, language in enumerate(languages):
         command += [f"-metadata:s:s:{index}", f"language={language}"]
+    # 실제 리믹스처럼 이름과 종류 표시를 붙여 둔다 — 영어 자막이 여럿일 때
+    # 무엇이 무엇인지 가릴 수 있어야 한다. 한글 이름도 하나 넣어 본다.
+    command += [
+        "-metadata:s:s:0", "title=English SDH", "-disposition:s:0", "hearing_impaired",
+        "-metadata:s:s:1", "title=한국어 (오역 수정)", "-disposition:s:1", "default",
+        "-metadata:s:s:2", "title=Forced (Signs)", "-disposition:s:2", "forced",
+    ]
     command.append(str(many))
     subprocess.run(command, check=True)
 

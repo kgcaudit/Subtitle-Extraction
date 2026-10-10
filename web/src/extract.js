@@ -9,6 +9,7 @@
 import { probe, readSamples, readSamplesForAll } from './container.js';
 import { PgsDecoder, splitSampleSegments } from './pgs.js';
 import { readAscii, u16, u32 } from './reader.js';
+import { trackBadges, trackHeadline } from './label.js';
 import { decodeSpu, parseIdxPalette } from './vobsub.js';
 import { MIME } from './mime.js';
 
@@ -56,7 +57,12 @@ export function isSupported(track) {
 /** 출력 파일 이름에 붙일 꼬리표. 파이썬판 SubtitleTrack.slug() 와 같은 규칙. */
 export function trackSlug(track) {
   const language = track.language && track.language !== 'und' ? track.language : 'und';
-  return track.forced ? `${language}.forced` : language;
+  // 파이썬판(subex/probe.py 의 slug)과 같은 규칙이어야 한다. 같은 영상에서
+  // 두 구현이 다른 이름을 내놓으면 안 된다.
+  const bits = [language];
+  if (track.forced) bits.push('forced');
+  if (track.hearingImpaired) bits.push('sdh');
+  return bits.join('.');
 }
 
 function stemOf(videoName) {
@@ -76,9 +82,10 @@ export function uniqueFileName(videoName, track, used) {
 }
 
 export function describeTrack(track) {
-  const parts = [`#${track.subtitleIndex}`, track.language || 'und', formatName(track.mimeType)];
-  const flags = [track.default && 'default', track.forced && 'forced'].filter(Boolean);
-  if (flags.length) parts.push(`[${flags.join(',')}]`);
+  const parts = [trackHeadline(track, formatName(track.mimeType))];
+  const badges = trackBadges(track);
+  if (badges.length) parts.push(`[${badges.join(',')}]`);
+  if (track.name) parts.push(`'${track.name}'`);
   return parts.join('  ');
 }
 

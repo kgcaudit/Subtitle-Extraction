@@ -1,0 +1,50 @@
+[
+  {
+    "language": "kor",
+    "forced": false,
+    "hearingImpaired": false,
+    "slug": "kor"
+  },
+  {
+    "language": "kor",
+    "forced": true,
+    "hearingImpaired": false,
+    "slug": "kor.forced"
+  },
+  {
+    "language": "eng",
+    "forced": false,
+    "hearingImpaired": true,
+    "slug": "eng.sdh"
+  },
+  {
+    "language": "eng",
+    "forced": true,
+    "hearingImpaired": true,
+    "slug": "eng.forced.sdh"
+  },
+  {
+    "language": "und",
+    "forced": false,
+    "hearingImpaired": false,
+    "slug": "und"
+  },
+  {
+    "language": null,
+    "forced": false,
+    "hearingImpaired": false,
+    "slug": "und"
+  },
+  {
+    "language": null,
+    "forced": true,
+    "hearingImpaired": false,
+    "slug": "und.forced"
+  },
+  {
+    "language": "pt-BR",
+    "forced": false,
+    "hearingImpaired": true,
+    "slug": "pt-BR.sdh"
+  }
+]

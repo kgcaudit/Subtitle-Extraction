@@ -2,7 +2,6 @@
 
 import { ensureTesseract } from './config.js';
 import {
-  describeTrack,
   formatName,
   isBitmap,
   isSupported,
@@ -18,6 +17,7 @@ import { OcrPool, pickLanguage } from './ocr.js';
 import { tidy } from './postprocess.js';
 import { render, formatTimestamp } from './srt.js';
 import { makeZip } from './zip.js';
+import { defaultIsMeaningful, languageName, trackBadges, trackHeadline } from './label.js';
 import {
   canPickFolder, loadFolder, rememberFolder, forgetFolder,
   pickFolder, ensureWritable, writeFiles,
@@ -182,6 +182,7 @@ function setBusy(busy) {
 
 function renderTracks() {
   ui.tracks.replaceChildren();
+  const showDefault = defaultIsMeaningful(state.tracks);
   for (const track of state.tracks) {
     const supported = isSupported(track);
     const item = document.createElement('li');
@@ -202,7 +203,25 @@ function renderTracks() {
     main.className = 'track-main';
     const title = document.createElement('div');
     title.className = 'track-title';
-    title.textContent = describeTrack(track);
+    title.textContent = trackHeadline(track, formatName(track.mimeType));
+    // 자막 종류 표시(강제·청각장애인용 …). 파일에 적혀 있는 것만 보여 준다.
+    for (const badge of trackBadges(track, { showDefault })) {
+      const tag = document.createElement('span');
+      tag.className = 'badge';
+      tag.textContent = badge;
+      title.append(' ', tag);
+    }
+
+    main.append(title);
+
+    // 만든 사람이 붙여 둔 이름. 'Forced (Signs)' 처럼 표시보다 자세할 때가 많다.
+    if (track.name) {
+      const given = document.createElement('div');
+      given.className = 'track-given';
+      given.textContent = track.name;
+      main.append(given);
+    }
+
     const note = document.createElement('div');
     note.className = 'track-note';
     note.textContent = !supported
@@ -211,7 +230,7 @@ function renderTracks() {
         ? '그림 자막 — 글자로 읽어 내는 데 시간이 걸립니다'
         : '글자 자막 — 바로 변환됩니다';
 
-    main.append(title, note);
+    main.append(note);
     item.append(checkbox, main);
     ui.tracks.append(item);
   }
@@ -266,7 +285,7 @@ function renderLanguageChips() {
     const chip = document.createElement('button');
     chip.type = 'button';
     chip.dataset.lang = language;
-    chip.textContent = `${language} ${indexes.length}`;
+    chip.textContent = `${languageName(language)} ${indexes.length}`;
     chip.addEventListener('click', () => {
       const allOn = indexes.every((index) => state.selected.has(index));
       for (const index of indexes) {

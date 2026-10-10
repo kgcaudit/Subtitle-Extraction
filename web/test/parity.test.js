@@ -72,3 +72,25 @@ test('대화 표시(-) 띄어쓰기 규칙이 파이썬판과 같다 — 자막�
   // 대시가 아예 없으면 아무 일도 없다.
   assert.deepEqual(run(['그래요', '가자']), ['그래요', '가자']);
 });
+
+/**
+ * 출력 파일 이름의 꼬리표가 파이썬판과 같은지.
+ *
+ * 같은 영상을 두 구현으로 돌렸는데 파일 이름이 다르면 쓸 수가 없다. 기준은
+ * 파이썬이 직접 만든 fixtures/slugs.json 이다(`python3 tests/make_parity_golden.py`).
+ */
+test('파일 이름 꼬리표가 파이썬판과 같다', async () => {
+  const { trackSlug } = await import('../src/extract.js');
+  const cases = JSON.parse(
+    readFileSync(fileURLToPath(new URL('./fixtures/slugs.json', import.meta.url)), 'utf8'),
+  );
+  assert.ok(cases.length >= 6, '대조할 경우가 너무 적습니다');
+
+  for (const item of cases) {
+    assert.equal(
+      trackSlug(item),
+      item.slug,
+      `${item.language} forced=${item.forced} sdh=${item.hearingImpaired}`,
+    );
+  }
+});
